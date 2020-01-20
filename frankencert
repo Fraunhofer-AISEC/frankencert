@@ -1,0 +1,322 @@
+#!/usr/bin/env python
+
+import argparse
+from datetime import datetime
+import collections
+import functools
+import os
+import random
+from pathlib import Path
+import sys
+
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import NameOID
+
+
+log = functools.partial(print, file=sys.stderr, flush=True)
+
+
+class FrankenCert:
+    def __init__(self, seed, ca_cert, ca_priv, config):
+        self.seed = seed
+        self.ca_cert = ca_cert
+        self.ca_priv = ca_priv
+        self.config = config
+
+    def _generate_priv(self):
+        key = None
+        t = self.config["keytype"]
+        if t == "rsa":
+            size = self.config["keylen"]
+            key = rsa.generate_private_key(
+                public_exponent=65537, key_size=size, backend=default_backend()
+            )
+        elif t == "ed25519":
+            key = ed25519.Ed25519PrivateKey.generate()
+        elif t == "secp256r1":
+            key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+        elif t == "secp384r1":
+            key = ec.generate_private_key(ec.SECP384R1, default_backend())
+        elif t == "secp512r1":
+            key = ec.generate_private_key(ec.SECP512R1, default_backend())
+        else:
+            raise ValueError("Invalid keytype")
+        assert key is not None
+        return key
+
+    def _generate_cert(
+        self, issuer, signing_key, extensions,
+    ):
+        private_key = self._generate_priv()
+        public_key = private_key.public_key()
+        builder = x509.CertificateBuilder()
+
+        # Set random not_before and not_after values.
+        not_before = None
+        not_after = None
+        if random.random() < self.config["invalid_ts_probability"]:
+            if random.random() < 0.5:
+                # Generate not yet valid cert.
+                not_before = datetime.now() + timedelta(days=1)
+            else:
+                # Generate expired cert.
+                not_after = datetime.now() - timedelta(days=1)
+        else:
+            pick = random.choice(self.seed)
+            not_before = pick.not_valid_before
+            pick = random.choice(self.seed)
+            not_after = pick.not_valid_after
+
+        assert not_before is not None
+        assert not_after is not None
+
+        builder = builder.not_valid_before(not_before)
+        builder = builder.not_valid_after(not_after)
+
+        # Set serial number.
+        if self.config["randomize_serial"]:
+            builder = builder.serial_number(x509.random_serial_number())
+        else:
+            pick = random.choice(self.seed)
+            builder = builder.serial_number(pick.serial_number)
+
+        # Set subject.
+        pick = random.choice(self.seed)
+        builder = builder.subject_name(pick.subject)
+
+        # Set issuer.
+        if issuer is None:
+            pick = random.choice(self.seed)
+            builder = builder.issuer_name(pick.issuer)
+        else:
+            builder = builder.issuer_name(issuer)
+            builder = builder.add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(issuer.rfc4514_string())]),
+                critical=False,
+            )
+
+        builder = builder.public_key(public_key)
+        builder = builder.add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True,
+        )
+
+        # Do stuff with extensions.
+        sample = random.randint(0, self.config["max_extensions"])
+        choices = random.sample(extensions.keys(), sample)
+        new_extensions = [random.choice(extensions[name]) for name in choices]
+        for extension in new_extensions:
+            # FIXME: How to implement this with python cryptography?
+            # if random.random() < self.config["ext_mod_probability"]:
+            #     randstr = "".join(chr(random.randint(0, 255)) for i in range(7))
+            #     extension.set_data(randstr)
+
+            try:
+                if random.random() < self.config["flip_probability"]:
+                    builder.add_extension(
+                        extension.value, critical=not extension.critical
+                    )
+                else:
+                    builder.add_extension(extension.value, critical=extension.critical)
+            # Skip duplicates…
+            except ValueError as e:
+                pass
+
+        cert = None
+        algorithm = self.config["digest"]
+        # ED25519 expects None here.
+        if issuer:
+            # Generate cert chain.
+            if isinstance(signing_key, ed25519.Ed25519PrivateKey):
+                algorithm = None
+            cert = builder.sign(
+                private_key=signing_key, algorithm=algorithm, backend=default_backend(),
+            )
+        else:
+            # Generate self signed cert.
+            if isinstance(private_key, ed25519.Ed25519PrivateKey):
+                algorithm = None
+            cert = builder.sign(
+                private_key=private_key, algorithm=algorithm, backend=default_backend(),
+            )
+        assert cert is not None
+        return private_key, cert
+
+    def generate(self, number, extensions=None):
+        log("Generating frankencerts…")
+
+        if extensions is None:
+            extensions = get_extension_dict(self.seed)
+        self.config["max_extensions"] = min(
+            self.config["max_extensions"], len(extensions.keys())
+        )
+
+        # generate the key pairs once and reuse them for faster
+        # frankencert generation
+        privs = []
+        for _ in range(self.config["max_depth"]):
+            priv = self._generate_priv()
+            privs.append(priv)
+
+        assert len(privs) == self.config["max_depth"]
+
+        certs = []
+        for i in range(number):
+            log(f"\rProgress: {i+1}/{number}", end="")
+
+            chain = []
+            signing_key = self.ca_priv
+            issuer = self.ca_cert.issuer
+            priv = None
+            length = random.randint(1, self.config["max_depth"])
+
+            if length == 1 and random.random() < self.config["self_signed_prob"]:
+                issuer = None
+
+            for j in range(length):
+                priv, cert = self._generate_cert(issuer, signing_key, extensions,)
+                signing_key = priv
+                issuer = cert.issuer
+                chain.append(cert)
+            certs.append((priv, list(reversed(chain))))
+
+        log()
+        assert len(certs) == number
+        return certs
+
+
+def dump_certs(path, certs):
+    log("Writing frankencerts to disk…")
+
+    base = Path(path)
+    if not base.exists():
+        base.mkdir()
+
+    for i, cert in enumerate(certs):
+        key, certs = cert
+        p = base.joinpath(f"frankencert-{i}.pem")
+        with p.open("wb") as f:
+            pem = key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            f.write(pem)
+            for cert in certs:
+                pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
+                f.write(pem)
+
+
+def load_seed(path):
+    log("Loading seed certificates…")
+
+    certs = []
+    for infile in Path(path).iterdir():
+        with infile.open("rb") as f:
+            try:
+                cert = x509.load_pem_x509_certificate(f.read(), default_backend())
+                certs.append(cert)
+            except Exception as e:
+                log(f"Error [{e}]: {infile}")
+    return certs
+
+
+def load_ca(path):
+    with Path(path).open("rb") as f:
+        buf = f.read()
+        ca_cert = x509.load_pem_x509_certificate(buf, default_backend())
+        ca_priv = serialization.load_pem_private_key(
+            buf, password=None, backend=default_backend()
+        )
+    return ca_priv, ca_cert
+
+
+def get_extension_dict(certs):
+    d = collections.defaultdict(dict)
+    for cert in certs:
+        for extension in cert.extensions:
+            d[extension.oid.dotted_string][extension.value] = extension
+    for k in d.keys():
+        d[k] = list(d[k].values())
+    return d
+
+
+def pick_hash_function(string):
+    if string == "md5":
+        return hashes.MD5()
+    elif string == "sha1":
+        return hashes.SHA1()
+    elif string == "sha224":
+        return hashes.SHA224()
+    elif string == "sha256":
+        return hashes.SHA256()
+    elif string == "sha384":
+        return hashes.SHA384()
+    elif string == "sha512":
+        return hashes.SHA512()
+    elif string == "sha512_224":
+        return hashes.SHA512_224()
+    elif string == "sha512_256":
+        return hashes.SHA512_256()
+    elif string == "blake2b":
+        return hashes.BLAKE2b(64)
+    elif string == "blake2s":
+        return hashes.BLAKE2s(32)
+    elif string == "sha3-224":
+        return hashes.SHA3_224()
+    elif string == "sha3-256":
+        return hashes.SHA3_256()
+    elif string == "sha3-384":
+        return hashes.SHA3_384()
+    elif string == "sha3-512":
+        return hashes.SHA3_512()
+    else:
+        raise ValueError("Unsupported Hash Algorithm")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-s", "--seed", required=True)
+    parser.add_argument("-c", "--ca", required=True)
+    parser.add_argument("-o", "--out", default="-", required=True)
+    parser.add_argument("-k", "--keytype", required=True)
+    parser.add_argument("-l", "--keylen", type=int, default=2048)
+    parser.add_argument("-d", "--digest", default="sha256")
+    parser.add_argument("-n", "--number", type=int, default=10)
+    parser.add_argument("--max-extensions", type=int, default=20)
+    parser.add_argument("--max-depth", type=int, default=3)
+    parser.add_argument("--ext-mod-prob", type=float, default=0.0)
+    parser.add_argument("--flip-critical-prob", type=float, default=0.25)
+    parser.add_argument("--self-signed-prob", type=float, default=0.25)
+    parser.add_argument("--invalid-ts-prob", type=float, default=0.0)
+    parser.add_argument("--randomize-serial", action="store_true", default=True)
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    seed = load_seed(args.seed)
+    ca_priv, ca_cert = load_ca(args.ca)
+    config = {
+        "ext_mod_probability": args.ext_mod_prob,
+        "flip_probability": args.flip_critical_prob,
+        "digest": pick_hash_function(args.digest),
+        "invalid_ts_probability": args.invalid_ts_prob,
+        "max_depth": args.max_depth,
+        "max_extensions": args.max_extensions,
+        "randomize_serial": args.randomize_serial,
+        "self_signed_prob": args.self_signed_prob,
+        "keytype": args.keytype,
+        "keylen": args.keylen,
+    }
+
+    frankenstein = FrankenCert(seed, ca_cert, ca_priv, config)
+    frankencerts = frankenstein.generate(args.number)
+    dump_certs(args.out, frankencerts)
+
+
+if __name__ == "__main__":
+    main()
