@@ -27,11 +27,16 @@ class FrankenCert:
         self.ca_priv = ca_priv
         self.config = config
 
+    def __getattr__(self, attr):
+        if attr in self.config:
+            return self.config[attr]
+        return super().__getattr__(attr)
+
     def _generate_priv(self):
         key = None
-        t = self.config["keytype"]
+        t = self.keytype
         if t == "rsa":
-            size = self.config["keylen"]
+            size = self.keylen
             key = rsa.generate_private_key(
                 public_exponent=65537, key_size=size, backend=default_backend()
             )
@@ -58,7 +63,7 @@ class FrankenCert:
         # Set random not_before and not_after values.
         not_before = None
         not_after = None
-        if random.random() < self.config["invalid_ts_probability"]:
+        if random.random() < self.invalid_ts_probability:
             if random.random() < 0.5:
                 # Generate not yet valid cert.
                 not_before = datetime.now() + timedelta(days=1)
@@ -78,7 +83,7 @@ class FrankenCert:
         builder = builder.not_valid_after(not_after)
 
         # Set serial number.
-        if self.config["randomize_serial"]:
+        if self.randomize_serial:
             builder = builder.serial_number(x509.random_serial_number())
         else:
             pick = random.choice(self.seed)
@@ -105,7 +110,7 @@ class FrankenCert:
         )
 
         # Do stuff with extensions.
-        sample = random.randint(0, self.config["max_extensions"])
+        sample = random.randint(0, self.max_extensions)
         choices = random.sample(extensions.keys(), sample)
         new_extensions = [random.choice(extensions[name]) for name in choices]
         for extension in new_extensions:
@@ -115,7 +120,7 @@ class FrankenCert:
             #     extension.set_data(randstr)
 
             try:
-                if random.random() < self.config["flip_probability"]:
+                if random.random() < self.flip_probability:
                     builder.add_extension(
                         extension.value, critical=not extension.critical
                     )
@@ -126,7 +131,7 @@ class FrankenCert:
                 pass
 
         cert = None
-        algorithm = self.config["digest"]
+        algorithm = self.digest
         # ED25519 expects None here.
         if issuer:
             # Generate cert chain.
@@ -150,18 +155,18 @@ class FrankenCert:
 
         if extensions is None:
             extensions = get_extension_dict(self.seed)
-        self.config["max_extensions"] = min(
-            self.config["max_extensions"], len(extensions.keys())
+        self.max_extensions = min(
+            self.max_extensions, len(extensions.keys())
         )
 
         # generate the key pairs once and reuse them for faster
         # frankencert generation
         privs = []
-        for _ in range(self.config["max_depth"]):
+        for _ in range(self.max_depth):
             priv = self._generate_priv()
             privs.append(priv)
 
-        assert len(privs) == self.config["max_depth"]
+        assert len(privs) == self.max_depth
 
         certs = []
         for i in range(number):
@@ -171,9 +176,9 @@ class FrankenCert:
             signing_key = self.ca_priv
             issuer = self.ca_cert.issuer
             priv = None
-            length = random.randint(1, self.config["max_depth"])
+            length = random.randint(1, self.max_depth)
 
-            if length == 1 and random.random() < self.config["self_signed_prob"]:
+            if length == 1 and random.random() < self.self_signed_prob:
                 issuer = None
 
             for j in range(length):
