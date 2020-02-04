@@ -249,37 +249,22 @@ def get_extension_dict(certs):
     return d
 
 
-def pick_hash_function(string):
-    if string == "md5":
-        return hashes.MD5()
-    elif string == "sha1":
-        return hashes.SHA1()
-    elif string == "sha224":
-        return hashes.SHA224()
-    elif string == "sha256":
-        return hashes.SHA256()
-    elif string == "sha384":
-        return hashes.SHA384()
-    elif string == "sha512":
-        return hashes.SHA512()
-    elif string == "sha512_224":
-        return hashes.SHA512_224()
-    elif string == "sha512_256":
-        return hashes.SHA512_256()
-    elif string == "blake2b":
-        return hashes.BLAKE2b(64)
-    elif string == "blake2s":
-        return hashes.BLAKE2s(32)
-    elif string == "sha3-224":
-        return hashes.SHA3_224()
-    elif string == "sha3-256":
-        return hashes.SHA3_256()
-    elif string == "sha3-384":
-        return hashes.SHA3_384()
-    elif string == "sha3-512":
-        return hashes.SHA3_512()
-    else:
-        raise ValueError("Unsupported Hash Algorithm")
+hash_algos = {
+    'md5': hashes.MD5(),
+    'sha1': hashes.SHA1(),
+    'sha224': hashes.SHA224(),
+    'sha256': hashes.SHA256(),
+    'sha384': hashes.SHA384(),
+    'sha512': hashes.SHA512(),
+    'sha512_224': hashes.SHA512_224(),
+    'sha512_256': hashes.SHA512_256(),
+    'blake2b': hashes.BLAKE2b(),
+    'blake2s': hashes.BLAKE2s(),
+    'sha3-224': hashes.SHA3_224(),
+    'sha3-256': hashes.SHA3_256(),
+    'sha3-384': hashes.SHA3_384(),
+    'sha3-512': hashes.SHA3_512(),
+}
 
 
 def parse_args():
@@ -298,6 +283,7 @@ def parse_args():
     parser.add_argument("--self-signed-prob", type=float, default=0.25)
     parser.add_argument("--invalid-ts-prob", type=float, default=0.0)
     parser.add_argument("--randomize-serial", action="store_true", default=True)
+    parser.add_argument("--randomize-hash", action="store_true", default=True)
     return parser.parse_args()
 
 
@@ -305,10 +291,14 @@ def main():
     args = parse_args()
     seed = load_seed(args.seed)
     ca_priv, ca_cert = load_ca(args.ca)
+    if args.randomize_hash:
+        hash_function, _ = random.choice(hash_algos.items())
+    else:
+        hash_function = hash_algos[args.digest]
     config = {
         "ext_mod_probability": args.ext_mod_prob,
         "flip_probability": args.flip_critical_prob,
-        "digest": pick_hash_function(args.digest),
+        "digest": hash_function,
         "invalid_ts_probability": args.invalid_ts_prob,
         "max_depth": args.max_depth,
         "max_extensions": args.max_extensions,
