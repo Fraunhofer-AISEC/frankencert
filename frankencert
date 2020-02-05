@@ -18,6 +18,29 @@ log = functools.partial(print, file=sys.stderr, flush=True)
 
 
 class FrankenCert:
+    ec_ciphers_gen_key = {
+        "ed25519": ed25519.Ed25519PrivateKey.generate,
+        "secp256r1": functools.partial(ec.generate_private_key, ec.SECP256R1(), default_backend()),
+        "secp384r1": functools.partial(ec.generate_private_key, ec.SECP384R1(), default_backend()),
+        "secp521r1": functools.partial(ec.generate_private_key, ec.SECP521R1(), default_backend()),
+    }
+    hash_algos = {
+        'md5': hashes.MD5(),
+        'sha1': hashes.SHA1(),
+        'sha224': hashes.SHA224(),
+        'sha256': hashes.SHA256(),
+        'sha384': hashes.SHA384(),
+        'sha512': hashes.SHA512(),
+        'sha512_224': hashes.SHA512_224(),
+        'sha512_256': hashes.SHA512_256(),
+        'blake2b': hashes.BLAKE2b(64),
+        'blake2s': hashes.BLAKE2s(32),
+        'sha3-224': hashes.SHA3_224(),
+        'sha3-256': hashes.SHA3_256(),
+        'sha3-384': hashes.SHA3_384(),
+        'sha3-512': hashes.SHA3_512(),
+    }
+
     def __init__(self, seed, ca_cert, ca_priv, config):
         self.seed = seed
         self.ca_cert = ca_cert
@@ -37,16 +60,11 @@ class FrankenCert:
             key = rsa.generate_private_key(
                 public_exponent=65537, key_size=size, backend=default_backend()
             )
-        elif t == "ed25519":
-            key = ed25519.Ed25519PrivateKey.generate()
-        elif t == "secp256r1":
-            key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        elif t == "secp384r1":
-            key = ec.generate_private_key(ec.SECP384R1, default_backend())
-        elif t == "secp512r1":
-            key = ec.generate_private_key(ec.SECP512R1, default_backend())
         else:
-            raise ValueError("Invalid keytype")
+            if self.randomize_keytype:
+                key = random.choice(ec_ciphers_gen_key.values())
+            else:
+                key = ec_ciphers_gen_key[t]()
         assert key is not None
         return key
 
@@ -129,9 +147,14 @@ class FrankenCert:
 
         cert = None
         # ED25519 expects None here.
-        algorithm = self.digest
+        if self.randomize_hash:
+            digest = random.choice(list(self.hash_algos.values()))
+        else:
+            digest = self.hash_algos[self.digest]
         if issuer:
             # Generate cert chain.
+            # ED25519 must not be used with a hash function, since
+            # hashing is backed into the signing algorithm itself!
             if isinstance(signing_key, ed25519.Ed25519PrivateKey):
                 algorithm = None
             cert = builder.sign(
@@ -246,24 +269,6 @@ def get_extension_dict(certs):
     return d
 
 
-hash_algos = {
-    'md5': hashes.MD5(),
-    'sha1': hashes.SHA1(),
-    'sha224': hashes.SHA224(),
-    'sha256': hashes.SHA256(),
-    'sha384': hashes.SHA384(),
-    'sha512': hashes.SHA512(),
-    'sha512_224': hashes.SHA512_224(),
-    'sha512_256': hashes.SHA512_256(),
-    'blake2b': hashes.BLAKE2b(),
-    'blake2s': hashes.BLAKE2s(),
-    'sha3-224': hashes.SHA3_224(),
-    'sha3-256': hashes.SHA3_256(),
-    'sha3-384': hashes.SHA3_384(),
-    'sha3-512': hashes.SHA3_512(),
-}
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--seed", required=True)
@@ -281,6 +286,7 @@ def parse_args():
     parser.add_argument("--invalid-ts-prob", type=float, default=0.0)
     parser.add_argument("--randomize-serial", action="store_true", default=True)
     parser.add_argument("--randomize-hash", action="store_true", default=True)
+    parser.add_argument("--randomize-keytype", action="store_true", default=True)
     return parser.parse_args()
 
 
@@ -288,21 +294,19 @@ def main():
     args = parse_args()
     seed = load_seed(args.seed)
     ca_priv, ca_cert = load_ca(args.ca)
-    if args.randomize_hash:
-        hash_function, _ = random.choice(hash_algos.items())
-    else:
-        hash_function = hash_algos[args.digest]
     config = {
+        "digest": hash_function,
         "ext_mod_probability": args.ext_mod_prob,
         "flip_probability": args.flip_critical_prob,
-        "digest": hash_function,
         "invalid_ts_probability": args.invalid_ts_prob,
+        "keylen": args.keylen,
+        "keytype": args.keytype,
         "max_depth": args.max_depth,
         "max_extensions": args.max_extensions,
+        "randomize_hash": args.randomize_hash,
         "randomize_serial": args.randomize_serial,
+        "randomize_keytype": args.randomize_keytype,
         "self_signed_prob": args.self_signed_prob,
-        "keytype": args.keytype,
-        "keylen": args.keylen,
     }
 
     frankenstein = FrankenCert(seed, ca_cert, ca_priv, config)
