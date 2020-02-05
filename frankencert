@@ -18,27 +18,31 @@ log = functools.partial(print, file=sys.stderr, flush=True)
 
 
 class FrankenCert:
-    ec_ciphers_gen_key = {
-        "ed25519": ed25519.Ed25519PrivateKey.generate,
-        "secp256r1": functools.partial(ec.generate_private_key, ec.SECP256R1(), default_backend()),
-        "secp384r1": functools.partial(ec.generate_private_key, ec.SECP384R1(), default_backend()),
-        "secp521r1": functools.partial(ec.generate_private_key, ec.SECP521R1(), default_backend()),
+    ec_ciphers = {
+        "ed25519": ed25519.Ed25519PrivateKey,
+        "secp256r1": ec.SECP256R1,
+        "secp384r1": ec.SECP384R1,
+        "secp521r1": ec.SECP521R1,
     }
+    # FIXME: If randomize_hash is used, there seems to be a bug in
+    # cryptography. Only non truncated SHA2 can be randomized.
+    # Otherwise it crashes with internal openssl errors. This
+    # needs investigation and fixes upstream…
     hash_algos = {
-        'md5': hashes.MD5(),
-        'sha1': hashes.SHA1(),
-        'sha224': hashes.SHA224(),
-        'sha256': hashes.SHA256(),
-        'sha384': hashes.SHA384(),
-        'sha512': hashes.SHA512(),
-        'sha512_224': hashes.SHA512_224(),
-        'sha512_256': hashes.SHA512_256(),
-        'blake2b': hashes.BLAKE2b(64),
-        'blake2s': hashes.BLAKE2s(32),
-        'sha3-224': hashes.SHA3_224(),
-        'sha3-256': hashes.SHA3_256(),
-        'sha3-384': hashes.SHA3_384(),
-        'sha3-512': hashes.SHA3_512(),
+        # 'md5': hashes.MD5,
+        'sha1': hashes.SHA1,
+        'sha224': hashes.SHA224,
+        'sha256': hashes.SHA256,
+        'sha384': hashes.SHA384,
+        'sha512': hashes.SHA512,
+        'sha512_224': hashes.SHA512_224,
+        'sha512_256': hashes.SHA512_256,
+        'blake2b': functools.partial(hashes.BLAKE2b, 64),
+        'blake2s': functools.partial(hashes.BLAKE2s, 32),
+        'sha3-224': hashes.SHA3_224,
+        'sha3-256': hashes.SHA3_256,
+        'sha3-384': hashes.SHA3_384,
+        'sha3-512': hashes.SHA3_512,
     }
 
     def __init__(self, seed, ca_cert, ca_priv, config):
@@ -55,6 +59,7 @@ class FrankenCert:
     def _generate_priv(self):
         key = None
         t = self.keytype
+        # TODO: Consider RSA in the randomized cert stuff as well.
         if t == "rsa":
             size = self.keylen
             key = rsa.generate_private_key(
@@ -62,9 +67,13 @@ class FrankenCert:
             )
         else:
             if self.randomize_keytype:
-                key = random.choice(ec_ciphers_gen_key.values())
+                cipher = random.choice(list(self.ec_ciphers.values()))
             else:
-                key = ec_ciphers_gen_key[t]()
+                cipher = self.ec_ciphers_gen_key[t]
+            if isinstance(cipher, ed25519.Ed25519PrivateKey.__class__):
+                key = cipher.generate()
+            else:
+                key = ec.generate_private_key(cipher, default_backend())
         assert key is not None
         return key
 
@@ -148,24 +157,24 @@ class FrankenCert:
         cert = None
         # ED25519 expects None here.
         if self.randomize_hash:
-            digest = random.choice(list(self.hash_algos.values()))
+            digest = random.choice(list(self.hash_algos.values()))()
         else:
-            digest = self.hash_algos[self.digest]
+            digest = self.hash_algos[self.digest]()
+        # ED25519 must not be used with a hash function, since
+        # hashing is backed into the signing digest itself!
         if issuer:
-            # Generate cert chain.
-            # ED25519 must not be used with a hash function, since
-            # hashing is backed into the signing algorithm itself!
             if isinstance(signing_key, ed25519.Ed25519PrivateKey):
-                algorithm = None
+                digest = None
+            # Generate cert chain.
             cert = builder.sign(
-                private_key=signing_key, algorithm=algorithm, backend=default_backend(),
+                private_key=signing_key, algorithm=digest, backend=default_backend(),
             )
         else:
-            # Generate self signed cert.
             if isinstance(private_key, ed25519.Ed25519PrivateKey):
-                algorithm = None
+                digest = None
+            # Generate self signed cert.
             cert = builder.sign(
-                private_key=private_key, algorithm=algorithm, backend=default_backend(),
+                private_key=private_key, algorithm=digest, backend=default_backend(),
             )
         assert cert is not None
         return private_key, cert
@@ -213,16 +222,10 @@ class FrankenCert:
         return certs
 
 
-def dump_certs(path, certs):
-    log("Writing frankencerts to disk…")
-
-    base = Path(path)
-    if not base.exists():
-        base.mkdir()
-
+def _dump_certs_file(path, certs):
     for i, cert in enumerate(certs):
         key, certs = cert
-        p = base.joinpath(f"frankencert-{i}.pem")
+        p = path.joinpath(f"frankencert-{i}.pem")
         with p.open("wb") as f:
             pem = key.private_bytes(
                 encoding=serialization.Encoding.PEM,
@@ -233,6 +236,32 @@ def dump_certs(path, certs):
             for cert in certs:
                 pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
                 f.write(pem)
+
+
+def _dump_certs_stdout(certs):
+    for cert in certs:
+        key, certs = cert
+        pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        print(pem.decode())
+        for cert in certs:
+            pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
+            print(pem.decode())
+
+
+def dump_certs(path, certs):
+    log(f"Writing frankencerts to {path}…")
+
+    if path == '-':
+        _dump_certs_stdout(certs)
+    else:
+        base = Path(path)
+        if not base.exists():
+            base.mkdir()
+        _dump_certs_file(path, certs)
 
 
 def load_seed(path):
@@ -273,8 +302,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--seed", required=True)
     parser.add_argument("-c", "--ca", required=True)
-    parser.add_argument("-o", "--out", default="-", required=True)
-    parser.add_argument("-k", "--keytype", required=True)
+    parser.add_argument("-o", "--out", default="-")
+    parser.add_argument("-k", "--keytype", default="secp256r1")
     parser.add_argument("-l", "--keylen", type=int, default=2048)
     parser.add_argument("-d", "--digest", default="sha256")
     parser.add_argument("-n", "--number", type=int, default=10)
@@ -284,9 +313,9 @@ def parse_args():
     parser.add_argument("--flip-critical-prob", type=float, default=0.25)
     parser.add_argument("--self-signed-prob", type=float, default=0.25)
     parser.add_argument("--invalid-ts-prob", type=float, default=0.0)
-    parser.add_argument("--randomize-serial", action="store_true", default=True)
-    parser.add_argument("--randomize-hash", action="store_true", default=True)
-    parser.add_argument("--randomize-keytype", action="store_true", default=True)
+    parser.add_argument("--randomize-serial", action="store_true")
+    parser.add_argument("--randomize-hash", action="store_true")
+    parser.add_argument("--randomize-keytype", action="store_true")
     return parser.parse_args()
 
 
@@ -295,7 +324,7 @@ def main():
     seed = load_seed(args.seed)
     ca_priv, ca_cert = load_ca(args.ca)
     config = {
-        "digest": hash_function,
+        "digest": args.digest,
         "ext_mod_probability": args.ext_mod_prob,
         "flip_probability": args.flip_critical_prob,
         "invalid_ts_probability": args.invalid_ts_prob,
