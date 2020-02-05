@@ -1,0 +1,44 @@
+#!/usr/bin/python3
+
+import argparse
+import asyncio
+import ssl
+
+
+async def handle_echo(reader, writer):
+    data = await reader.read(4096)
+    msg = data.decode()
+    addr = writer.get_extra_info('peername')
+
+    print(f"Received {msg!r} from {addr!r}")
+
+    print(f"Send: {msg!r}")
+    writer.write(data)
+    await writer.drain()
+
+    print("Closing the connection")
+    writer.close()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-b', '--bind', default='127.0.0.1', help='bind to this address')
+    parser.add_argument('-p', '--port', default=8888, help='bind to this tcp port')
+    parser.add_argument('-k', '--key', required=True, help='path to the private key')
+    parser.add_argument('-c', '--cert', required=True, help='path to the certificate')
+    return parser.parse_args()
+
+
+async def main():
+    args = parse_args()
+    ctx = ssl.create_default_context()
+    ctx.load_cert_chain(args.cert, args.key)
+    server = await asyncio.start_server(handle_echo, args.bind, args.port, ssl=ctx)
+
+    addr = server.sockets[0].getsockname()
+    print(f'Serving on {addr}')
+    await server.serve_forever()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
