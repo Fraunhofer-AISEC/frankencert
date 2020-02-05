@@ -128,8 +128,8 @@ class FrankenCert:
                 pass
 
         cert = None
-        algorithm = self.digest
         # ED25519 expects None here.
+        algorithm = self.digest
         if issuer:
             # Generate cert chain.
             if isinstance(signing_key, ed25519.Ed25519PrivateKey):
