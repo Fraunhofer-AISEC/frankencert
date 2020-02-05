@@ -1,0 +1,33 @@
+#!/usr/bin/python3
+
+from enum import IntEnum
+import subprocess
+import sys
+
+
+class State(IntEnum):
+    WAITING = 0
+    READING = 1
+
+
+def main():
+    buf = []
+    start = "-----BEGIN CERTIFICATE-----\n"
+    end = "-----END CERTIFICATE-----\n"
+    state = State.WAITING
+    for line in sys.stdin:
+        if state == State.WAITING:
+            if line == start:
+                state = State.READING
+                buf.append(line)
+        elif state == State.READING:
+            buf.append(line)
+            if line == end:
+                state = State.WAITING
+                data = ''.join(buf).encode()
+                buf = []
+                subprocess.run(['openssl', 'x509', '-text', '-noout'], input=data)
+
+
+if __name__ == '__main__':
+    main()
