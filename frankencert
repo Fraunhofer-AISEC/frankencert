@@ -124,7 +124,7 @@ class FrankenCert:
                 else:
                     builder.add_extension(extension.value, critical=extension.critical)
             # Skip duplicates…
-            except ValueError as e:
+            except ValueError:
                 pass
 
         cert = None
