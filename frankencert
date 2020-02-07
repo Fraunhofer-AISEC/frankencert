@@ -261,7 +261,7 @@ def dump_certs(path, certs):
         base = Path(path)
         if not base.exists():
             base.mkdir()
-        _dump_certs_file(path, certs)
+        _dump_certs_file(base, certs)
 
 
 def load_seed(path):
