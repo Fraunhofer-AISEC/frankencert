@@ -299,7 +299,7 @@ def get_extension_dict(certs):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Generate specially crafted SSL certificates for testing certificate validation code in SSL/TLS implementations')
     parser.add_argument("-s", "--seed", required=True)
     parser.add_argument("-c", "--ca", required=True)
     parser.add_argument("-o", "--out", default="-")
