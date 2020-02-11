@@ -13,7 +13,6 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
-
 log = functools.partial(print, file=sys.stderr, flush=True)
 
 
@@ -62,9 +61,9 @@ class FrankenCert:
         # TODO: Consider RSA in the randomized cert stuff as well.
         if t == "rsa":
             size = self.keylen
-            key = rsa.generate_private_key(
-                public_exponent=65537, key_size=size, backend=default_backend()
-            )
+            key = rsa.generate_private_key(public_exponent=65537,
+                                           key_size=size,
+                                           backend=default_backend())
         else:
             if self.randomize_keytype:
                 cipher = random.choice(list(self.ec_ciphers.values()))
@@ -78,7 +77,10 @@ class FrankenCert:
         return key
 
     def _generate_cert(
-        self, issuer, signing_key, extensions,
+        self,
+        issuer,
+        signing_key,
+        extensions,
     ):
         private_key = self._generate_priv()
         public_key = private_key.public_key()
@@ -124,13 +126,15 @@ class FrankenCert:
         else:
             builder = builder.issuer_name(issuer)
             builder = builder.add_extension(
-                x509.SubjectAlternativeName([x509.DNSName(issuer.rfc4514_string())]),
+                x509.SubjectAlternativeName(
+                    [x509.DNSName(issuer.rfc4514_string())]),
                 critical=False,
             )
 
         builder = builder.public_key(public_key)
         builder = builder.add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True,
+            x509.BasicConstraints(ca=False, path_length=None),
+            critical=True,
         )
 
         # Do stuff with extensions.
@@ -145,11 +149,11 @@ class FrankenCert:
 
             try:
                 if random.random() < self.flip_probability:
-                    builder.add_extension(
-                        extension.value, critical=not extension.critical
-                    )
+                    builder.add_extension(extension.value,
+                                          critical=not extension.critical)
                 else:
-                    builder.add_extension(extension.value, critical=extension.critical)
+                    builder.add_extension(extension.value,
+                                          critical=extension.critical)
             # Skip duplicates…
             except ValueError:
                 pass
@@ -167,14 +171,18 @@ class FrankenCert:
                 digest = None
             # Generate cert chain.
             cert = builder.sign(
-                private_key=signing_key, algorithm=digest, backend=default_backend(),
+                private_key=signing_key,
+                algorithm=digest,
+                backend=default_backend(),
             )
         else:
             if isinstance(private_key, ed25519.Ed25519PrivateKey):
                 digest = None
             # Generate self signed cert.
             cert = builder.sign(
-                private_key=private_key, algorithm=digest, backend=default_backend(),
+                private_key=private_key,
+                algorithm=digest,
+                backend=default_backend(),
             )
         assert cert is not None
         return private_key, cert
@@ -184,9 +192,7 @@ class FrankenCert:
 
         if extensions is None:
             extensions = get_extension_dict(self.seed)
-        self.max_extensions = min(
-            self.max_extensions, len(extensions.keys())
-        )
+        self.max_extensions = min(self.max_extensions, len(extensions.keys()))
 
         # generate the key pairs once and reuse them for faster
         # frankencert generation
@@ -211,7 +217,11 @@ class FrankenCert:
                 issuer = None
 
             for j in range(length):
-                priv, cert = self._generate_cert(issuer, signing_key, extensions,)
+                priv, cert = self._generate_cert(
+                    issuer,
+                    signing_key,
+                    extensions,
+                )
                 signing_key = priv
                 issuer = cert.issuer
                 chain.append(cert)
@@ -271,7 +281,8 @@ def load_seed(path):
     for infile in Path(path).iterdir():
         with infile.open("rb") as f:
             try:
-                cert = x509.load_pem_x509_certificate(f.read(), default_backend())
+                cert = x509.load_pem_x509_certificate(f.read(),
+                                                      default_backend())
                 certs.append(cert)
             except Exception as e:
                 log(f"Error [{e}]: {infile}")
@@ -282,9 +293,9 @@ def load_ca(path):
     with Path(path).open("rb") as f:
         buf = f.read()
         ca_cert = x509.load_pem_x509_certificate(buf, default_backend())
-        ca_priv = serialization.load_pem_private_key(
-            buf, password=None, backend=default_backend()
-        )
+        ca_priv = serialization.load_pem_private_key(buf,
+                                                     password=None,
+                                                     backend=default_backend())
     return ca_priv, ca_cert
 
 
@@ -299,7 +310,10 @@ def get_extension_dict(certs):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Generate specially crafted SSL certificates for testing certificate validation code in SSL/TLS implementations')
+    parser = argparse.ArgumentParser(
+        description=
+        'Generate specially crafted SSL certificates for testing certificate validation code in SSL/TLS implementations'
+    )
     parser.add_argument("-s", "--seed", required=True)
     parser.add_argument("-c", "--ca", required=True)
     parser.add_argument("-o", "--out", default="-")
