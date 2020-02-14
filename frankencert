@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
-from datetime import datetime, timedelta
 import collections
+from datetime import datetime, timedelta
 import functools
-import random
 from pathlib import Path
+import random
 import sys
 
 from cryptography import x509
@@ -123,6 +123,12 @@ class FrankenCert:
         if issuer is None:
             pick = random.choice(self.seed)
             builder = builder.issuer_name(pick.issuer)
+        elif self.invalid:
+            builder = builder.issuer_name(_random_str())
+            builder = builder.add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(_random_str())]),
+                critical=False,
+            )
         else:
             builder = builder.issuer_name(issuer)
             builder = builder.add_extension(
@@ -232,6 +238,14 @@ class FrankenCert:
         return certs
 
 
+def _random_str():
+    r = ''
+    s = list(string.printable)
+    for _ in range(random.randint(0, 128)):
+        r += random.choice(s)
+    return r
+
+
 def _dump_certs_file(path, certs):
     for i, cert in enumerate(certs):
         key, certs = cert
@@ -314,22 +328,86 @@ def parse_args():
         description=
         'Generate specially crafted SSL certificates for testing certificate validation code in SSL/TLS implementations'
     )
-    parser.add_argument("-s", "--seed", required=True)
-    parser.add_argument("-c", "--ca", required=True)
-    parser.add_argument("-o", "--out", default="-")
-    parser.add_argument("-k", "--keytype", default="secp256r1")
-    parser.add_argument("-l", "--keylen", type=int, default=2048)
-    parser.add_argument("-d", "--digest", default="sha256")
-    parser.add_argument("-n", "--number", type=int, default=10)
-    parser.add_argument("--max-extensions", type=int, default=20)
-    parser.add_argument("--max-depth", type=int, default=3)
-    parser.add_argument("--ext-mod-prob", type=float, default=0.0)
-    parser.add_argument("--flip-critical-prob", type=float, default=0.25)
-    parser.add_argument("--self-signed-prob", type=float, default=0.25)
-    parser.add_argument("--invalid-ts-prob", type=float, default=0.0)
-    parser.add_argument("--randomize-serial", action="store_true")
-    parser.add_argument("--randomize-hash", action="store_true")
-    parser.add_argument("--randomize-keytype", action="store_true")
+    parser.add_argument("-s",
+                        "--seed",
+                        metavar="PATH",
+                        required=True,
+                        help="Path to folder containing seed certificates")
+    parser.add_argument(
+        "-c",
+        "--ca",
+        metavar="PATH",
+        required=True,
+        help="Path to root ca file, containing priv key and certificate")
+    parser.add_argument("-o",
+                        "--out",
+                        metavar="PATH",
+                        default="-",
+                        help="Out directory, or stdout with '-'")
+    parser.add_argument(
+        "-k",
+        "--keytype",
+        default="secp256r1",
+        help="Specify the keytype, e.g. secp256r1, see openssl")
+    parser.add_argument("-l",
+                        "--keylen",
+                        metavar="INT",
+                        type=int,
+                        default=2048,
+                        help="Keylength, only for RSA keys")
+    parser.add_argument("-d",
+                        "--digest",
+                        default="sha256",
+                        help="Hash algorithm to generate the signature")
+    parser.add_argument("-n",
+                        "--number",
+                        type=int,
+                        metavar="INT",
+                        default=10,
+                        help="Quartity of generated certs")
+    parser.add_argument("-i",
+                        "--invalid",
+                        action="store_true",
+                        help="Quartity of generated certs")
+    parser.add_argument("--max-extensions",
+                        type=int,
+                        metavar="INT",
+                        default=20,
+                        help="Max X.509 extensions, currently not used")
+    parser.add_argument("--max-depth",
+                        type=int,
+                        metavar="INT",
+                        default=3,
+                        help="Maximum trust chain length")
+    parser.add_argument("--ext-mod-prob",
+                        type=float,
+                        metavar="FLOAT",
+                        default=0.0)
+    parser.add_argument("--flip-critical-prob",
+                        type=float,
+                        metavar="FLOAT",
+                        default=0.25)
+    parser.add_argument("--self-signed-prob",
+                        type=float,
+                        metavar="FLOAT",
+                        default=0.25)
+    parser.add_argument("--invalid-ts-prob",
+                        type=float,
+                        metavar="FLOAT",
+                        default=0.0)
+    parser.add_argument(
+        "--randomize-serial",
+        action="store_true",
+        help="Randomize the serial number of the generated certificates")
+    parser.add_argument(
+        "--randomize-hash",
+        action="store_true",
+        help=
+        "Randomize the hash function that is used to generate the signatures [!BUGS!]"
+    )
+    parser.add_argument("--randomize-keytype",
+                        action="store_true",
+                        help="Use different keys: ec, ed25519, …")
     return parser.parse_args()
 
 
@@ -341,6 +419,7 @@ def main():
         "digest": args.digest,
         "ext_mod_probability": args.ext_mod_prob,
         "flip_probability": args.flip_critical_prob,
+        "invalid": args.invalid,
         "invalid_ts_probability": args.invalid_ts_prob,
         "keylen": args.keylen,
         "keytype": args.keytype,
