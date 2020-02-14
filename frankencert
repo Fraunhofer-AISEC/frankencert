@@ -68,7 +68,7 @@ class FrankenCert:
             if self.randomize_keytype:
                 cipher = random.choice(list(self.ec_ciphers.values()))
             else:
-                cipher = self.ec_ciphers_gen_key[t]
+                cipher = self.ec_ciphers[t]
             if isinstance(cipher, ed25519.Ed25519PrivateKey.__class__):
                 key = cipher.generate()
             else:
