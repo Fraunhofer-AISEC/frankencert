@@ -2,8 +2,7 @@
 
 set -eu
 
-CAKEY='ca-key.pem'
-CACERT='ca-cert.pem'
+CA='ca.pem'
 CURVE='secp256k1'
 DIGEST='sha256'
 NUMBER='10'
@@ -45,12 +44,10 @@ die() {
 
 main() {
     local cacsr
+    local cacert
 
-    if [[ -r "$CAKEY" ]]; then
-        die "ca key already exist: $CAKEY"
-    fi
-    if [[ -r "$CACERT" ]]; then
-        die "ca cert already exist: $CACERT"
+    if [[ -r "$CA" ]]; then
+        die "ca file already exist: $CA"
     fi
     if [[ -z "$SUBJECT" ]]; then
         die "please set -s"
@@ -59,14 +56,17 @@ main() {
         die "please set -S"
     fi
 
-    newkey > "$CAKEY"
+    newkey > "$CA"
     cacsr="$(mktemp)"
+    cacert="$(mktemp)"
 
-    newcsr "$CAKEY" "$CASUBJECT" > "$cacsr"
-    signcsr "$CAKEY" "$cacsr" > "$CACERT"
+    newcsr "$CA" "$CASUBJECT" > "$cacsr"
+    signcsr "$CA" "$cacsr" >> "$cacert"
+    cat "$cacert" >> "$CA"
     rm "$cacsr"
+    rm "$cacert"
 
-    for (( i=0; i<$NUMBER; i++)); do
+    for (( i=0; i<NUMBER; i++)); do
         local key
         local cert
         local csr
@@ -78,8 +78,10 @@ main() {
         newcsr "$key" "$SUBJECT" > "$csr"
 
         cert="cert-$i.pem"
-        signcsr "$CAKEY" "$csr" > "$cert"
+        signcsr "$CA" "$csr" > "$cert"
+        cat "$key" >> "$cert"
         rm "$csr"
+        rm "$key"
     done
 }
 
