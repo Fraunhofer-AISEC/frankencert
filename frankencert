@@ -369,7 +369,7 @@ def parse_args():
     parser.add_argument("-i",
                         "--invalid",
                         action="store_true",
-                        help="Quartity of generated certs")
+                        help="Introduce more brokenness")
     parser.add_argument("--max-extensions",
                         type=int,
                         metavar="INT",
