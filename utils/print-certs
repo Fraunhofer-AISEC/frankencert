@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 
-from enum import IntEnum
 import subprocess
 import sys
+from enum import IntEnum
 
 
 class State(IntEnum):
@@ -10,7 +10,7 @@ class State(IntEnum):
     READING = 1
 
 
-def main():
+def main() -> None:
     buf = []
     start = "-----BEGIN CERTIFICATE-----\n"
     end = "-----END CERTIFICATE-----\n"
@@ -26,7 +26,8 @@ def main():
                 state = State.WAITING
                 data = ''.join(buf).encode()
                 buf = []
-                subprocess.run(['openssl', 'x509', '-text', '-noout'], input=data)
+                cmd = ['openssl', 'x509', '-text', '-noout']
+                subprocess.run(cmd, input=data)
 
 
 if __name__ == '__main__':
