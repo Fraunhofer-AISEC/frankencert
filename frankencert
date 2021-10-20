@@ -26,7 +26,6 @@ from cryptography.x509.extensions import Extension, ExtensionType
 from cryptography.x509.name import Name
 
 # This is so much pain… :(
-from cryptography.hazmat.bindings._rust import x509 as rust_x509
 from cryptography.hazmat.backends.openssl.encode_asn1 import (
     _encode_asn1_int_gc,
     _encode_name_gc,
