@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
 import collections
 import functools
@@ -8,38 +10,31 @@ import os
 import random
 import string
 import sys
+import typing
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 from cryptography import x509
+from cryptography.hazmat.backends.openssl.backend import Backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, dh, ec, ed25519, ed448, rsa
 from cryptography.x509.oid import NameOID
-from cryptography.hazmat._types import _PRIVATE_KEY_TYPES, _PUBLIC_KEY_TYPES
-from cryptography.hazmat.backends import _get_backend
+from cryptography.hazmat.primitives.asymmetric.types import PRIVATE_KEY_TYPES, PUBLIC_KEY_TYPES
 from cryptography.x509.extensions import Extension, ExtensionType
 from cryptography.x509.name import Name
 
+# This is so much pain… :(
+from cryptography.hazmat.bindings._rust import x509 as rust_x509
+from cryptography.hazmat.backends.openssl.encode_asn1 import (
+    _encode_asn1_int_gc,
+    _encode_name_gc,
+)
+
 
 log = functools.partial(print, file=sys.stderr, flush=True)
-PRIVATE_KEY_T = (
-    rsa.RSAPrivateKey
-    | dsa.DSAPrivateKey
-    | dh.DHPrivateKey
-    | ec.EllipticCurvePrivateKey
-    | ec.EllipticCurvePrivateKey
-    | ed448.Ed448PrivateKey
-)
-PUBLIC_KEY_T = (
-    dsa.DSAPublicKey
-    | ed25519.Ed25519PublicKey
-    | ed448.Ed448PublicKey
-    | ec.EllipticCurvePublicKey
-    | rsa.RSAPublicKey
-)
-FRANKENCERT_T = tuple[PRIVATE_KEY_T, list[x509.Certificate]]
+FRANKENCERT_T = tuple[PRIVATE_KEY_TYPES, list[x509.Certificate]]
 
 
 def _convert_to_naive_utc_time(time: datetime.datetime) -> datetime.datetime:
@@ -61,6 +56,92 @@ class Version(Enum):
     v3 = 2
 
 
+class FrankenBackend(Backend):
+    def create_x509_certificate(
+        self,
+        builder: x509.CertificateBuilder,
+        private_key: PRIVATE_KEY_TYPES,
+        algorithm: typing.Optional[hashes.HashAlgorithm],
+    ) -> x509.Certificate:
+        if builder._public_key is None:
+            raise TypeError("Builder has no public key.")
+        self._x509_check_signature_params(private_key, algorithm)
+
+        # Resolve the signature algorithm.
+        evp_md = self._evp_md_x509_null_if_eddsa(private_key, algorithm)
+
+        # Create an empty certificate.
+        x509_cert = self._lib.X509_new()
+        x509_cert = self._ffi.gc(x509_cert, self._lib.X509_free)
+
+        # Set the x509 version.
+        res = self._lib.X509_set_version(x509_cert, builder._version.value)
+        self.openssl_assert(res == 1)
+
+        # Set the subject's name.
+        res = self._lib.X509_set_subject_name(
+            x509_cert, _encode_name_gc(self, builder._subject_name)
+        )
+        self.openssl_assert(res == 1)
+
+        # Set the subject's public key.
+        res = self._lib.X509_set_pubkey(
+            x509_cert,
+            builder._public_key._evp_pkey,  # type: ignore[union-attr]
+        )
+        self.openssl_assert(res == 1)
+
+        # Set the certificate serial number.
+        serial_number = _encode_asn1_int_gc(self, builder._serial_number)
+        res = self._lib.X509_set_serialNumber(x509_cert, serial_number)
+        self.openssl_assert(res == 1)
+
+        # Set the "not before" time.
+        self._set_asn1_time(
+            self._lib.X509_getm_notBefore(x509_cert), builder._not_valid_before
+        )
+
+        # Set the "not after" time.
+        self._set_asn1_time(
+            self._lib.X509_getm_notAfter(x509_cert), builder._not_valid_after
+        )
+
+        # Add extensions.
+        self._create_x509_extensions(
+            extensions=builder._extensions,
+            handlers=self._extension_encode_handlers,
+            x509_obj=x509_cert,
+            add_func=self._lib.X509_add_ext,
+            gc=True,
+        )
+
+        # Set the issuer name.
+        res = self._lib.X509_set_issuer_name(
+            x509_cert, _encode_name_gc(self, builder._issuer_name)
+        )
+        self.openssl_assert(res == 1)
+
+        # Sign the certificate with the issuer's private key.
+        res = self._lib.X509_sign(
+            x509_cert,
+            private_key._evp_pkey,  # type: ignore[union-attr]
+            evp_md,
+        )
+        if res == 0:
+            errors = self._consume_errors_with_text()
+            raise ValueError("Signing failed", errors)
+
+        return self._ossl2cert(x509_cert)
+
+
+_backend = FrankenBackend()
+
+
+def _get_backend(backend: typing.Optional[Backend]) -> Backend:
+    global _backend
+    return _backend
+
+
 class CertificateBuilder:
     def __init__(
         self,
@@ -71,7 +152,7 @@ class CertificateBuilder:
         not_valid_before=None,
         not_valid_after=None,
         extensions=[],
-    ):
+    ) -> None:
         self._version = Version.v3
         self._issuer_name = issuer_name
         self._subject_name = subject_name
@@ -81,7 +162,7 @@ class CertificateBuilder:
         self._not_valid_after = not_valid_after
         self._extensions = extensions
 
-    def issuer_name(self, name: Name):
+    def issuer_name(self, name: Name) -> CertificateBuilder:
         """
         Sets the CA's distinguished name.
         """
@@ -95,7 +176,7 @@ class CertificateBuilder:
             self._extensions,
         )
 
-    def subject_name(self, name: Name):
+    def subject_name(self, name: Name) -> CertificateBuilder:
         """
         Sets the requestor's distinguished name.
         """
@@ -111,8 +192,8 @@ class CertificateBuilder:
 
     def public_key(
         self,
-        key: _PUBLIC_KEY_TYPES,
-    ):
+        key: PUBLIC_KEY_TYPES,
+    ) -> CertificateBuilder:
         """
         Sets the requestor's public key (as found in the signing request).
         """
@@ -126,7 +207,7 @@ class CertificateBuilder:
             self._extensions,
         )
 
-    def serial_number(self, number: int):
+    def serial_number(self, number: int) -> CertificateBuilder:
         """
         Sets the certificate serial number.
         """
@@ -140,7 +221,7 @@ class CertificateBuilder:
             self._extensions,
         )
 
-    def not_valid_before(self, time: datetime.datetime):
+    def not_valid_before(self, time: datetime.datetime) -> CertificateBuilder:
         """
         Sets the certificate activation time.
         """
@@ -155,7 +236,7 @@ class CertificateBuilder:
             self._extensions,
         )
 
-    def not_valid_after(self, time: datetime.datetime):
+    def not_valid_after(self, time: datetime.datetime) -> CertificateBuilder:
         """
         Sets the certificate expiration time.
         """
@@ -170,14 +251,11 @@ class CertificateBuilder:
             self._extensions,
         )
 
-    def add_extension(self, extval: ExtensionType, critical: bool):
+    def add_extension(self, extval: ExtensionType, critical: bool) -> CertificateBuilder:
         """
         Adds an X.509 extension to the certificate.
         """
-        extension = Extension(
-            extval.oid,
-            critical,
-        )
+        extension = Extension(extval.oid, critical, extval)
         return CertificateBuilder(
             self._issuer_name,
             self._subject_name,
@@ -190,7 +268,7 @@ class CertificateBuilder:
 
     def sign(
         self,
-        private_key: _PRIVATE_KEY_TYPES,
+        private_key: PRIVATE_KEY_TYPES,
         algorithm: hashes.HashAlgorithm,
         backend=None,
     ) -> x509.Certificate:
@@ -288,7 +366,7 @@ class FrankenCertGenerator:
     ) -> tuple[PRIVATE_KEY_T, x509.Certificate]:
         private_key = self._generate_priv()
         public_key = private_key.public_key()
-        builder = x509.CertificateBuilder()
+        builder = CertificateBuilder()
 
         # Set random not_before and not_after values.
         not_before = None
@@ -381,7 +459,7 @@ class FrankenCertGenerator:
             digest = random.choice(list(self.hash_algos.values()))()
         else:
             digest = self.hash_algos[self.digest]()
-        # ED25519 must not be used with a hash function, since
+        # ED25519 MUST NOT be used with a hash function, since
         # hashing is backed into the signing digest itself!
         if issuer:
             if isinstance(signing_key, ed25519.Ed25519PrivateKey):
@@ -464,8 +542,7 @@ def _dump_certs_file(path: Path, franken_certs: list[FRANKENCERT_T]) -> None:
         key, cert_list = franken_cert
         p = path.joinpath(f"frankencert-{i}.pem")
         buf = io.BytesIO()
-        # TODO: seems to be a mypy/type stubs bug.
-        pem = key.private_bytes(  # type: ignore
+        pem = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
