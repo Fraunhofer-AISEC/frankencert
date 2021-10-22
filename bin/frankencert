@@ -20,10 +20,13 @@ from cryptography import x509
 from cryptography.hazmat.backends.openssl.backend import Backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, dh, ec, ed25519, ed448, rsa
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives.asymmetric.types import PRIVATE_KEY_TYPES, PUBLIC_KEY_TYPES
+from cryptography.hazmat.primitives.asymmetric.types import (
+    PRIVATE_KEY_TYPES,
+    PUBLIC_KEY_TYPES,
+)
 from cryptography.x509.extensions import Extension, ExtensionType
 from cryptography.x509.name import Name
+from cryptography.x509.oid import NameOID
 
 # This is so much pain… :(
 from cryptography.hazmat.backends.openssl.encode_asn1 import (
@@ -250,7 +253,9 @@ class CertificateBuilder:
             self._extensions,
         )
 
-    def add_extension(self, extval: ExtensionType, critical: bool) -> CertificateBuilder:
+    def add_extension(
+        self, extval: ExtensionType, critical: bool
+    ) -> CertificateBuilder:
         """
         Adds an X.509 extension to the certificate.
         """
@@ -315,7 +320,7 @@ class FrankenCertGenerator:
         self,
         seed: list[x509.Certificate],
         ca_cert: x509.Certificate,
-        ca_priv: PRIVATE_KEY_T,
+        ca_priv: PRIVATE_KEY_TYPES,
         config: dict,
     ) -> None:
         self.seed = seed
@@ -335,8 +340,8 @@ class FrankenCertGenerator:
         self.randomize_keytype: bool = config["randomize_keytype"]
         self.self_signed_prob: float = config["self_signed_prob"]
 
-    def _generate_priv(self) -> PRIVATE_KEY_T:
-        key: Optional[PRIVATE_KEY_T] = None
+    def _generate_priv(self) -> PRIVATE_KEY_TYPES:
+        key: Optional[PRIVATE_KEY_TYPES] = None
         t = self.keytype
         # TODO: Consider RSA in the randomized cert stuff as well.
         if t == "rsa":
@@ -360,9 +365,9 @@ class FrankenCertGenerator:
     def _generate_cert(
         self,
         issuer: Optional[x509.Name],
-        signing_key: PRIVATE_KEY_T,
+        signing_key: PRIVATE_KEY_TYPES,
         extensions: dict,
-    ) -> tuple[PRIVATE_KEY_T, x509.Certificate]:
+    ) -> tuple[PRIVATE_KEY_TYPES, x509.Certificate]:
         private_key = self._generate_priv()
         public_key = private_key.public_key()
         builder = CertificateBuilder()
@@ -583,17 +588,21 @@ def load_seed(path: Path) -> list[x509.Certificate]:
     log("Loading seed certificates…")
 
     certs = []
-    for infile in Path(path).iterdir():
-        data = infile.read_bytes()
-        try:
-            cert = x509.load_pem_x509_certificate(data)
-            certs.append(cert)
-        except Exception as e:
-            log(f"Error [{e}]: {infile}")
+    certsfiles = list(path.iterdir())
+
+    with open("pyLoad-fails.txt", "w") as f:
+        for i, infile in enumerate(certsfiles):
+            log(f"\rProgress: {i+1}/{len(certsfiles)}", end="")
+            data = infile.read_bytes()
+            try:
+                cert = x509.load_pem_x509_certificate(data)
+                certs.append(cert)
+            except Exception:
+                f.write(f"failed: {infile}\n")
     return certs
 
 
-def load_ca(path: Path) -> tuple[PRIVATE_KEY_T, x509.Certificate]:
+def load_ca(path: Path) -> tuple[PRIVATE_KEY_TYPES, x509.Certificate]:
     buf = path.read_bytes()
     ca_cert = x509.load_pem_x509_certificate(buf)
     ca_priv = serialization.load_pem_private_key(buf, password=None)
@@ -641,6 +650,11 @@ def parse_args() -> argparse.Namespace:
         default="-",
         type=Path,
         help="Out directory, or stdout with '-'",
+    )
+    parser.add_argument(
+        "--load-only",
+        action="store_true",
+        help="Only load seeds and do not generate frankencerts",
     )
     parser.add_argument(
         "-k",
@@ -735,6 +749,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     seed = load_seed(args.seed)
+    if args.load_only:
+        sys.exit(0)
     ca_priv, ca_cert = load_ca(args.ca)
     config = {
         "digest": args.digest,
