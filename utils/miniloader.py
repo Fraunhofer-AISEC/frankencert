@@ -7,9 +7,13 @@ from cryptography import x509
 
 
 def main():
-    path = Path(sys.argv[1])
-    raw = path.read_bytes()
-    x509.load_pem_x509_certificate(raw)
+    for file in sys.stdin:
+        path = Path(file.strip())
+        raw = path.read_bytes()
+        try:
+            x509.load_pem_x509_certificate(raw)
+        except Exception:
+            print(f"{path}: failed")
 
 
 if __name__ == "__main__":
