@@ -12,8 +12,8 @@ def main():
         raw = path.read_bytes()
         try:
             x509.load_pem_x509_certificate(raw)
-        except Exception:
-            print(f"{path}: failed")
+        except Exception as e:
+            print(f"{path}: {e}")
 
 
 if __name__ == "__main__":
