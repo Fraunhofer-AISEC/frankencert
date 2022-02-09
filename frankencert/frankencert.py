@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
 import argparse
@@ -39,7 +37,7 @@ log = functools.partial(print, file=sys.stderr, flush=True)
 FRANKENCERT_T = tuple[PRIVATE_KEY_TYPES, list[x509.Certificate]]
 
 
-def _convert_to_naive_utc_time(time: datetime.datetime) -> datetime.datetime:
+def _convert_to_naive_utc_time(time: datetime.datetime) -> datetime:
     """Normalizes a datetime to a naive datetime in UTC.
 
     time -- datetime to normalize. Assumed to be in UTC if not timezone
@@ -47,7 +45,7 @@ def _convert_to_naive_utc_time(time: datetime.datetime) -> datetime.datetime:
     """
     if time.tzinfo is not None:
         offset = time.utcoffset()
-        offset = offset if offset else datetime.timedelta()
+        offset = offset if offset else timedelta()
         return time.replace(tzinfo=None) - offset
     else:
         return time
@@ -771,7 +769,3 @@ def main() -> None:
     frankenstein = FrankenCertGenerator(seed, ca_cert, ca_priv, config)
     frankencerts = frankenstein.generate(args.number)
     dump_certs(args.out, frankencerts)
-
-
-if __name__ == "__main__":
-    main()
