@@ -1,3 +1,7 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.poetry]
 name = "frankencert"
 version = "0.1.0"
@@ -6,38 +10,31 @@ authors = ["Stefan Tatschner <stefan.tatschner@aisec.fraunhofer.de>"]
 license = "Apache2"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-# aiohttp = "^3.8.0"
-# argcomplete = "^2.0.0"
-aiofiles = "^0.8.0"
-aiosqlite = "^0.17.0"
+python = ">=3.10,<3.11"
 cryptography = "^36.0.1"
+gallia = "1.1.0a0"
 
 [tool.poetry.dev-dependencies]
-flake8 = "^4.0.1"
+black = "^22.6.0"
+flake8 = "^5.0.4"
 isort = "^5.10.1"
-mypy = "^0.931"
-pylsp-mypy = "^0.5.7"
+mypy = "^0.971"
+pylint = "2.14.5"
+pylsp-mypy = "^0.6.2"
 pylsp-rope = "^0.1.8"
+pytest = "^7.1.2"
+pytest-asyncio = "^0.19.0"
 python-lsp-black = "^1.1.0"
-python-lsp-server = "^1.3.3"
-types-aiofiles = "^0.8.3"
-types-cryptography = "^3.3.8"
+python-lsp-server = "^1.5.0"
+types-aiofiles = "^0.8.10"
+myst-parser = "^0.18.0"
+reuse = "^1.0.0"
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.poetry.scripts]
+certrunner = "frankencert.runner:main"
 
 [tool.mypy]
-disallow_any_unimported = true
-check_untyped_defs = true
-ignore_missing_imports = true
-allow_redefinition = true
-warn_unreachable = true
-disallow_untyped_calls = true
-strict_equality = true
-disallow_untyped_defs = true
-warn_unused_ignores = true
+strict = true
 
 [tool.black]
 target-version = ['py310']
