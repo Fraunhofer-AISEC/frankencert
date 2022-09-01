@@ -9,14 +9,16 @@ import sys
 import warnings
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from datetime import datetime
 from pathlib import Path
 from subprocess import PIPE, Popen
-from typing import cast
+from tempfile import NamedTemporaryFile
+from typing import Any
 
 from cryptography.utils import CryptographyDeprecationWarning
-from gallia.config import ConfigType, load_config_file
 from gallia.command import Script
+from gallia.config import ConfigType, load_config_file
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
@@ -88,6 +90,45 @@ class GNUTLS_Plugin(BasePlugin):
                 "--certificate-info",
                 "--load-certificate",
                 "/dev/stdin",
+            ],
+            input=cert,
+            capture_output=True,
+        )
+        if p.returncode != 0:
+            return p.stderr.decode().strip()
+        return None
+
+
+class MBED_TLS_Plugin(BasePlugin):
+    def run(self, cert: bytes) -> None | str:
+        with NamedTemporaryFile() as f:
+            f.write(cert)
+            f.seek(0)
+
+            p = subprocess.run(
+                [
+                    "mbedtls_cert_app",
+                    "mode=file",
+                    f"filename={f.name}",
+                ],
+                input=cert,
+                capture_output=True,
+            )
+        if p.returncode != 0:
+            return p.stdout.decode().strip()
+        return None
+
+
+class OpenSSL_Plugin(BasePlugin):
+    def run(self, cert: bytes) -> None | str:
+        p = subprocess.run(
+            [
+                "openssl",
+                "x509",
+                "-in",
+                "/dev/stdin",
+                "-noout",
+                "-text",
             ],
             input=cert,
             capture_output=True,
@@ -179,8 +220,8 @@ class DBHandler:
         loader: str,
         start_time: datetime,
         end_time: datetime,
-        in_data: dict,
-        out_data: dict,
+        in_data: dict[str, str],
+        out_data: dict[str, str],
     ) -> int:
         assert self.run_id, "run_id is not set"
         self.cur.execute(
@@ -207,11 +248,12 @@ class DBHandler:
 
 def parse_line(line: str) -> bytes:
     _, cert = line.split(",", maxsplit=1)
-    return (
+    out = (
         b"-----BEGIN CERTIFICATE-----\n"
-        + cert.encode()
+        + cert.encode().strip()
         + b"\n-----END CERTIFICATE-----\n"
     )
+    return out.strip()
 
 
 class Runner(Script):
@@ -222,7 +264,7 @@ class Runner(Script):
         super().__init__(parser, config)
         self.db: DBHandler
 
-    def add_parser(self) -> None:
+    def configure_parser(self) -> None:
         self.parser.add_argument(
             "--plugin-path",
             type=Path,
@@ -236,6 +278,13 @@ class Runner(Script):
             help="path to sqlite database",
             default=self.get_config_value("frankencert.db_path", None),
         )
+        self.parser.add_argument(
+            "-i",
+            "--indices",
+            type=int,
+            nargs="+",
+            help="indices of plugins to run only",
+        )
 
     def load_ipc_plugins(self, path: Path) -> list[BasePlugin]:
         out: list[BasePlugin] = []
@@ -247,11 +296,45 @@ class Runner(Script):
                 out.append(IPCPlugin(loader))
         return out
 
+    def _process_plugin(self, plugin: BasePlugin, cert: bytes) -> dict[str, Any]:
+        self.logger.trace(f"running plugin {plugin}")
+
+        # Do not log successfully parsed runs.
+        out = {"start_time": datetime.now(), "plugin": str(plugin), "log_it": False}
+        res = plugin.run(cert)
+        out["end_time"] = datetime.now()
+
+        if res is not None:
+            out["in_data"] = {"in": cert.decode()}
+            out["out_data"] = {"out": res}
+            out["log_it"] = True
+
+        return out
+
+    def _flush_futures(self, futures: list[Future[dict[str, Any]]]) -> None:
+        for future in as_completed(futures):
+            res = future.result()
+
+            if not res["log_it"]:
+                continue
+
+            self.logger.info(f"{res['plugin']}: {res['out_data']['out']}")
+
+            self.db.result_add(
+                loader=res["plugin"],
+                in_data=res["in_data"],
+                out_data=res["out_data"],
+                start_time=res["start_time"],
+                end_time=res["end_time"],
+            )
+
     def process_tests(self, args: Namespace) -> None:
         self.db.run_add(sys.argv, datetime.now())
 
         plugins: list[BasePlugin] = [
             GNUTLS_Plugin(),
+            MBED_TLS_Plugin(),
+            OpenSSL_Plugin(),
             PythonPlugin(),
         ]
 
@@ -260,32 +343,28 @@ class Runner(Script):
 
         self.logger.info(f"loaded plugins: {plugins}")
 
-        for i, line in enumerate(sys.stdin):
-            if i % 1000 == 0:
-                self.logger.info(f"parsing cert #{i}")
-            cert = parse_line(line)
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
 
-            for plugin in plugins:
-                self.logger.trace(f"running plugin {plugin}")
-                start_time = datetime.now()
-                res = plugin.run(cert)
-                end_time = datetime.now()
+            for i, line in enumerate(sys.stdin):
+                if i % 1000 == 0:
+                    self.logger.info(f"parsing cert #{i}")
 
-                # Do not log successfully parsed runs.
-                if res is None:
-                    continue
+                cert = parse_line(line)
 
-                self.logger.info(f"{plugin}: error: {res}")
-                in_data = {"in": cert.decode()}
-                out_data = {"out": res}
+                for i, plugin in enumerate(plugins):
+                    if args.indices is not None and i in args.indices:
+                        continue
 
-                self.db.result_add(
-                    loader=str(plugin),
-                    in_data=in_data,
-                    out_data=out_data,
-                    start_time=start_time,
-                    end_time=end_time,
-                )
+                    fut = executor.submit(self._process_plugin, plugin, cert)
+                    futures.append(fut)
+
+                if len(futures) % 1000 == 0:
+                    self._flush_futures(futures)
+                    futures = []
+
+            self._flush_futures(futures)
+            futures = []
 
     def main(self, args: Namespace) -> None:
         self.db = DBHandler.connect(args.db)

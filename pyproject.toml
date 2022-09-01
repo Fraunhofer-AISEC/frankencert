@@ -12,7 +12,7 @@ license = "Apache2"
 [tool.poetry.dependencies]
 python = ">=3.10,<3.11"
 cryptography = "^36.0.1"
-gallia = "1.1.0a0"
+gallia = "1.1.0a1"
 
 [tool.poetry.dev-dependencies]
 black = "^22.6.0"
