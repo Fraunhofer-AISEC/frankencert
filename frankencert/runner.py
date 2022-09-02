@@ -12,9 +12,8 @@ from argparse import ArgumentParser, Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from datetime import datetime
 from pathlib import Path
-from subprocess import PIPE, Popen
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, cast
 
 from cryptography.utils import CryptographyDeprecationWarning
 from gallia.command import Script
@@ -44,6 +43,7 @@ CREATE TABLE scan_result (
     loader text not null,
     start_time real not null,
     end_time real not null,
+    success int,
     in_data text check(json_valid(in_data)),
     out_data text check(json_valid(out_data))
 ) STRICT;
@@ -51,100 +51,89 @@ CREATE TABLE scan_result (
 
 
 class BasePlugin(ABC):
-    @abstractmethod
-    def run(self, cert: bytes) -> None | str:
-        ...
-
     def __str__(self) -> str:
         return self.__class__.__name__
 
     def __repr__(self) -> str:
         return str(self)
 
-
-class IPCPlugin(BasePlugin):
-    def __init__(self, path: Path):
-        self.path = path
-        self.loader = Popen([self.path], stdout=PIPE, stdin=PIPE, text=True, bufsize=1)
-
-    def run(self, cert: bytes) -> None | str:
-        assert self.loader.stdout
-        assert self.loader.stdin
-
-        data = json.dumps({"in": cert.decode()})
-        self.loader.stdin.write(data + "\n")
-        res = json.loads(self.loader.stdout.readline())
-        if "out" in res and res["out"]:
-            return str(res["out"])
-        return None
-
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.path})"
+    @abstractmethod
+    def run(self, cert: bytes) -> dict[str, Any]:
+        ...
 
 
-class GNUTLS_Plugin(BasePlugin):
-    def run(self, cert: bytes) -> None | str:
+class SubprocessPlugin(BasePlugin):
+    COMMAND: list[str] = []
+
+    def __init__(self, command: list[str] | None = None) -> None:
+        self.command = self.COMMAND if command is None else command
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.command})"
+
+    def run(self, cert: bytes) -> dict[str, Any]:
+        out = {}
         p = subprocess.run(
-            [
-                "certtool",
-                "--certificate-info",
-                "--load-certificate",
-                "/dev/stdin",
-            ],
+            self.command,
             input=cert,
             capture_output=True,
         )
+
         if p.returncode != 0:
-            return p.stderr.decode().strip()
-        return None
+            out["stderr"] = p.stderr.decode().strip()
+            out["stdout"] = p.stdout.decode().strip()
+
+        return out
 
 
-class MBED_TLS_Plugin(BasePlugin):
-    def run(self, cert: bytes) -> None | str:
+class GoPlugin(SubprocessPlugin):
+    pass
+
+
+class GNUTLS_Plugin(SubprocessPlugin):
+    COMMAND = [
+        "certtool",
+        "--certificate-info",
+        "--load-certificate",
+        "/dev/stdin",
+    ]
+
+
+class MBED_TLS_Plugin(SubprocessPlugin):
+    def run(self, cert: bytes) -> dict[str, Any]:
         with NamedTemporaryFile() as f:
             f.write(cert)
             f.seek(0)
 
-            p = subprocess.run(
-                [
-                    "mbedtls_cert_app",
-                    "mode=file",
-                    f"filename={f.name}",
-                ],
-                input=cert,
-                capture_output=True,
-            )
-        if p.returncode != 0:
-            return p.stdout.decode().strip()
-        return None
+            self.command = [
+                "mbedtls_cert_app",
+                "mode=file",
+                f"filename={f.name}",
+            ]
+
+            return super().run(cert)
 
 
-class OpenSSL_Plugin(BasePlugin):
-    def run(self, cert: bytes) -> None | str:
-        p = subprocess.run(
-            [
-                "openssl",
-                "x509",
-                "-in",
-                "/dev/stdin",
-                "-noout",
-                "-text",
-            ],
-            input=cert,
-            capture_output=True,
-        )
-        if p.returncode != 0:
-            return p.stderr.decode().strip()
-        return None
+class OpenSSL_Plugin(SubprocessPlugin):
+    COMMAND = [
+        "openssl",
+        "x509",
+        "-in",
+        "/dev/stdin",
+        "-noout",
+        "-text",
+    ]
 
 
 class PythonPlugin(BasePlugin):
-    def run(self, cert: bytes) -> None | str:
+    def run(self, cert: bytes) -> dict[str, Any]:
+        out = {}
         try:
             x509.load_pem_x509_certificate(cert)
-            return None
         except Exception as e:
-            return str(e)
+            out["stderr"] = str(e)
+
+        return out
 
 
 class DBHandler:
@@ -220,6 +209,7 @@ class DBHandler:
         loader: str,
         start_time: datetime,
         end_time: datetime,
+        success: bool,
         in_data: dict[str, str],
         out_data: dict[str, str],
     ) -> int:
@@ -230,14 +220,16 @@ class DBHandler:
                     loader,
                     start_time,
                     end_time,
+                    success,
                     in_data,
                     out_data
-                ) VALUES(?, ?, ?, ?, ?, ?)""",
+                ) VALUES(?, ?, ?, ?, ?, ?, ?)""",
             (
                 self.run_id,
                 loader,
                 start_time.timestamp(),
                 end_time.timestamp(),
+                success,
                 json.dumps(in_data),
                 json.dumps(out_data),
             ),
@@ -246,7 +238,11 @@ class DBHandler:
         return self.cur.lastrowid
 
 
-def parse_line(line: str) -> bytes:
+def parse_line(line: str, as_json: bool) -> bytes:
+    if as_json:
+        data = json.loads(line)
+        return cast(bytes, data["cert"].encode())
+
     _, cert = line.split(",", maxsplit=1)
     out = (
         b"-----BEGIN CERTIFICATE-----\n"
@@ -266,13 +262,6 @@ class Runner(Script):
 
     def configure_parser(self) -> None:
         self.parser.add_argument(
-            "--plugin-path",
-            type=Path,
-            metavar="PATH",
-            help="path to executables used as loaders",
-            default=self.get_config_value("frankencert.plugin_path", None),
-        )
-        self.parser.add_argument(
             "--db",
             type=Path,
             help="path to sqlite database",
@@ -285,16 +274,22 @@ class Runner(Script):
             nargs="+",
             help="indices of plugins to run only",
         )
-
-    def load_ipc_plugins(self, path: Path) -> list[BasePlugin]:
-        out: list[BasePlugin] = []
-        for loader in path.iterdir():
-            if loader.is_dir():
-                continue
-            s = loader.stat()
-            if s.st_mode & 0o100 or s.st_mode & 0o010 or s.st_mode & 0o001:
-                out.append(IPCPlugin(loader))
-        return out
+        self.parser.add_argument(
+            "--start",
+            type=int,
+            help="start reading at this offset",
+        )
+        self.parser.add_argument(
+            "--stop",
+            type=int,
+            help="stop reading at this offset",
+        )
+        self.parser.add_argument(
+            "-j",
+            "--json",
+            action="store_true",
+            help="read from stdin as json",
+        )
 
     def _process_plugin(self, plugin: BasePlugin, cert: bytes) -> dict[str, Any]:
         self.logger.trace(f"running plugin {plugin}")
@@ -304,10 +299,12 @@ class Runner(Script):
         res = plugin.run(cert)
         out["end_time"] = datetime.now()
 
-        if res is not None:
-            out["in_data"] = {"in": cert.decode()}
+        if res != {}:
+            out["in_data"] = {"in": {"stdin": cert.decode()}}
             out["out_data"] = {"out": res}
-            out["log_it"] = True
+        else:
+            out["in_data"] = {"in": None}
+            out["out_data"] = {"out": None}
 
         return out
 
@@ -315,10 +312,10 @@ class Runner(Script):
         for future in as_completed(futures):
             res = future.result()
 
-            if not res["log_it"]:
-                continue
-
-            self.logger.info(f"{res['plugin']}: {res['out_data']['out']}")
+            success = True
+            if res["in_data"]["in"] is not None:
+                self.logger.info(f"{res['plugin']}: {res['out_data']}")
+                success = False
 
             self.db.result_add(
                 loader=res["plugin"],
@@ -326,9 +323,12 @@ class Runner(Script):
                 out_data=res["out_data"],
                 start_time=res["start_time"],
                 end_time=res["end_time"],
+                success=success,
             )
+        self.db.commit()
 
-    def process_tests(self, args: Namespace) -> None:
+    def main(self, args: Namespace) -> None:
+        self.db = DBHandler.connect(args.db)
         self.db.run_add(sys.argv, datetime.now())
 
         plugins: list[BasePlugin] = [
@@ -336,10 +336,8 @@ class Runner(Script):
             MBED_TLS_Plugin(),
             OpenSSL_Plugin(),
             PythonPlugin(),
+            GoPlugin(["loaders/go/loader"]),
         ]
-
-        if (p := args.plugin_path) is not None:
-            plugins += self.load_ipc_plugins(p)
 
         self.logger.info(f"loaded plugins: {plugins}")
 
@@ -347,10 +345,11 @@ class Runner(Script):
             futures = []
 
             for i, line in enumerate(sys.stdin):
-                if i % 1000 == 0:
-                    self.logger.info(f"parsing cert #{i}")
+                n = i + 1
+                if n % 1000 == 0:
+                    self.logger.info(f"parsing cert #{n}")
 
-                cert = parse_line(line)
+                cert = parse_line(line, args.json)
 
                 for i, plugin in enumerate(plugins):
                     if args.indices is not None and i in args.indices:
@@ -365,10 +364,6 @@ class Runner(Script):
 
             self._flush_futures(futures)
             futures = []
-
-    def main(self, args: Namespace) -> None:
-        self.db = DBHandler.connect(args.db)
-        self.process_tests(args)
 
     def entry_point(self, args: Namespace) -> int:
         exit_code = 0
