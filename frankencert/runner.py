@@ -9,19 +9,22 @@ import sys
 import warnings
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from base64 import b64encode
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any, cast
 
 from cryptography.utils import CryptographyDeprecationWarning
 from gallia.command import Script
-from gallia.config import ConfigType, load_config_file
+from gallia.config import Config, load_config_file
+from mbedtls.x509 import CRT as MBEDCertificate
+from OpenSSL.crypto import FILETYPE_PEM
+from OpenSSL.crypto import load_certificate as openssl_load_cert
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-from cryptography import x509
+from cryptography import x509  # noqa
 
 SCHEMA_VERSION = 0
 SCHEMA = """
@@ -47,6 +50,8 @@ CREATE TABLE scan_result (
     in_data text check(json_valid(in_data)),
     out_data text check(json_valid(out_data))
 ) STRICT;
+
+CREATE INDEX success_index ON scan_result(id, success);
 """
 
 
@@ -80,8 +85,14 @@ class SubprocessPlugin(BasePlugin):
         )
 
         if p.returncode != 0:
-            out["stderr"] = p.stderr.decode().strip()
-            out["stdout"] = p.stdout.decode().strip()
+            try:
+                out["stderr"] = p.stderr.decode().strip()
+            except UnicodeDecodeError:
+                out["stderr"] = f"base64:{b64encode(p.stderr).decode()}"
+            try:
+                out["stdout"] = p.stdout.decode().strip()
+            except UnicodeDecodeError:
+                out["stdout"] = f"base64:{b64encode(p.stdout).decode()}"
 
         return out
 
@@ -99,30 +110,26 @@ class GNUTLS_Plugin(SubprocessPlugin):
     ]
 
 
-class MBED_TLS_Plugin(SubprocessPlugin):
+class MBED_TLS_Plugin(BasePlugin):
     def run(self, cert: bytes) -> dict[str, Any]:
-        with NamedTemporaryFile() as f:
-            f.write(cert)
-            f.seek(0)
+        out = {}
+        try:
+            MBEDCertificate.from_PEM(cert.decode())
+        except Exception as e:
+            out["stderr"] = str(e)
 
-            self.command = [
-                "mbedtls_cert_app",
-                "mode=file",
-                f"filename={f.name}",
-            ]
-
-            return super().run(cert)
+        return out
 
 
-class OpenSSL_Plugin(SubprocessPlugin):
-    COMMAND = [
-        "openssl",
-        "x509",
-        "-in",
-        "/dev/stdin",
-        "-noout",
-        "-text",
-    ]
+class OpenSSL_Plugin(BasePlugin):
+    def run(self, cert: bytes) -> dict[str, Any]:
+        out = {}
+        try:
+            openssl_load_cert(FILETYPE_PEM, cert)
+        except Exception as e:
+            out["stderr"] = str(e)
+
+        return out
 
 
 class PythonPlugin(BasePlugin):
@@ -256,7 +263,7 @@ class Runner(Script):
     COMMAND = "frankencert"
     LOGGER_NAME = "frankenrunner"
 
-    def __init__(self, parser: ArgumentParser, config: ConfigType) -> None:
+    def __init__(self, parser: ArgumentParser, config: Config) -> None:
         super().__init__(parser, config)
         self.db: DBHandler
 
@@ -265,7 +272,7 @@ class Runner(Script):
             "--db",
             type=Path,
             help="path to sqlite database",
-            default=self.get_config_value("frankencert.db_path", None),
+            default=self.config.get_value("frankencert.db_path", None),
         )
         self.parser.add_argument(
             "-i",
@@ -295,7 +302,7 @@ class Runner(Script):
         self.logger.trace(f"running plugin {plugin}")
 
         # Do not log successfully parsed runs.
-        out = {"start_time": datetime.now(), "plugin": str(plugin), "log_it": False}
+        out = {"start_time": datetime.now(), "plugin": repr(plugin)}
         res = plugin.run(cert)
         out["end_time"] = datetime.now()
 
@@ -337,11 +344,15 @@ class Runner(Script):
             OpenSSL_Plugin(),
             PythonPlugin(),
             GoPlugin(["loaders/go/loader"]),
+            GoPlugin(["loaders/go/go1.16.15-loader"]),
+            GoPlugin(["loaders/go/go1.17.13-loader"]),
+            GoPlugin(["loaders/go/go1.18.6-loader"]),
+            GoPlugin(["loaders/go/go1.19.1-loader"]),
         ]
 
         self.logger.info(f"loaded plugins: {plugins}")
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor() as executor:
             futures = []
 
             for i, line in enumerate(sys.stdin):

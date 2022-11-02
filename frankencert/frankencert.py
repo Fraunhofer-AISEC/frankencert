@@ -16,8 +16,14 @@ from typing import Optional
 
 from cryptography import x509
 from cryptography.hazmat.backends.openssl.backend import Backend
+
+# This is so much pain… :(
+from cryptography.hazmat.backends.openssl.encode_asn1 import (
+    _encode_asn1_int_gc,
+    _encode_name_gc,
+)
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import dsa, dh, ec, ed25519, ed448, rsa
+from cryptography.hazmat.primitives.asymmetric import dh, dsa, ec, ed448, ed25519, rsa
 from cryptography.hazmat.primitives.asymmetric.types import (
     PRIVATE_KEY_TYPES,
     PUBLIC_KEY_TYPES,
@@ -25,13 +31,6 @@ from cryptography.hazmat.primitives.asymmetric.types import (
 from cryptography.x509.extensions import Extension, ExtensionType
 from cryptography.x509.name import Name
 from cryptography.x509.oid import NameOID
-
-# This is so much pain… :(
-from cryptography.hazmat.backends.openssl.encode_asn1 import (
-    _encode_asn1_int_gc,
-    _encode_name_gc,
-)
-
 
 log = functools.partial(print, file=sys.stderr, flush=True)
 FRANKENCERT_T = tuple[PRIVATE_KEY_TYPES, list[x509.Certificate]]
@@ -293,12 +292,8 @@ class FrankenCertGenerator:
         "secp384r1": ec.SECP384R1,
         "secp521r1": ec.SECP521R1,
     }
-    # FIXME: If randomize_hash is used, there seems to be a bug in
-    # cryptography. Only non truncated SHA2 can be randomized.
-    # Otherwise it crashes with internal openssl errors. This
-    # needs investigation and fixes upstream…
     hash_algos = {
-        # 'md5': hashes.MD5,
+        'md5': hashes.MD5,
         "sha1": hashes.SHA1,
         "sha224": hashes.SHA224,
         "sha256": hashes.SHA256,
