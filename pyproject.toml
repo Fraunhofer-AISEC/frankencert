@@ -11,7 +11,7 @@ license = "Apache2"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.11"
-cryptography = "^36.0.1"
+cryptography = "^38.0.3"
 gallia = "1.1.0rc1"
 pyOpenSSL = "^22.0.0"
 python-mbedtls = "^2.5.1"
