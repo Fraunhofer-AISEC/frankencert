@@ -341,7 +341,7 @@ python-versions = ">=3.7"
 
 [[package]]
 name = "gallia"
-version = "1.1.0rc1"
+version = "1.1.0"
 description = "Extendable Pentesting Framework"
 category = "main"
 optional = false
@@ -1448,7 +1448,7 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.10,<3.11"
-content-hash = "07c7f1306f7edd89cb2041d94cd30bf027d5b13d9a76d64ae565870f4490f370"
+content-hash = "f36a72bc11e5bf318d6d21d6b2107837db06aeaba5cb21e3e2d646f2a10f1efd"
 
 [metadata.files]
 aiofiles = [
@@ -1875,8 +1875,8 @@ frozenlist = [
     {file = "frozenlist-1.3.1.tar.gz", hash = "sha256:3a735e4211a04ccfa3f4833547acdf5d2f863bfeb01cfd3edaffbc251f15cec8"},
 ]
 gallia = [
-    {file = "gallia-1.1.0rc1-py3-none-any.whl", hash = "sha256:cdaf0aa6947314df4f8526ce9920d4583ffce041b95b1226267fa4f29992449e"},
-    {file = "gallia-1.1.0rc1.tar.gz", hash = "sha256:34599094adf3952b0bd8ec5c82a650fa1bbb1da958e45b3afed3677b4e291b45"},
+    {file = "gallia-1.1.0-py3-none-any.whl", hash = "sha256:34397114cfc784365fcd0de68f4888a621c4508f0ca443b44296f1e18b7588be"},
+    {file = "gallia-1.1.0.tar.gz", hash = "sha256:07f93c70b8df987674d4ac03f6b7c7b76c8c80389b5a28fc9c8e5e50f8c69ab7"},
 ]
 greenlet = [
     {file = "greenlet-2.0.0-cp27-cp27m-macosx_10_14_x86_64.whl", hash = "sha256:4be4dedbd2fa9b7c35627f322d6d3139cb125bc18d5ef2f40237990850ea446f"},
@@ -2410,6 +2410,8 @@ pathspec = [
     {file = "pathspec-0.10.1.tar.gz", hash = "sha256:7ace6161b621d31e7902eb6b5ae148d12cfd23f4a249b9ffb6b9fee12084323d"},
 ]
 pillow = [
+    {file = "Pillow-9.3.0-1-cp37-cp37m-win32.whl", hash = "sha256:e6ea6b856a74d560d9326c0f5895ef8050126acfdc7ca08ad703eb0081e82b74"},
+    {file = "Pillow-9.3.0-1-cp37-cp37m-win_amd64.whl", hash = "sha256:32a44128c4bdca7f31de5be641187367fe2a450ad83b833ef78910397db491aa"},
     {file = "Pillow-9.3.0-cp310-cp310-macosx_10_10_x86_64.whl", hash = "sha256:0b7257127d646ff8676ec8a15520013a698d1fdc48bc2a79ba4e53df792526f2"},
     {file = "Pillow-9.3.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:b90f7616ea170e92820775ed47e136208e04c967271c9ef615b6fbd08d9af0e3"},
     {file = "Pillow-9.3.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:68943d632f1f9e3dce98908e873b3a090f6cba1cbb1b892a9e8d97c938871fbe"},
