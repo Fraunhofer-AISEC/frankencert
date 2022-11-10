@@ -1,9 +1,8 @@
 import argparse
 import json
 from datetime import datetime
+from enum import IntEnum, auto, unique
 from functools import cache
-
-from enum import IntEnum, unique, auto
 
 import pandas as pd
 from sqlalchemy import create_engine  # type: ignore

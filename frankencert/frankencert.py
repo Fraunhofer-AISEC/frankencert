@@ -293,7 +293,7 @@ class FrankenCertGenerator:
         "secp521r1": ec.SECP521R1,
     }
     hash_algos = {
-        'md5': hashes.MD5,
+        "md5": hashes.MD5,
         "sha1": hashes.SHA1,
         "sha224": hashes.SHA224,
         "sha256": hashes.SHA256,
