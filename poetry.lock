@@ -349,7 +349,7 @@ python-versions = ">=3.7"
 
 [[package]]
 name = "gallia"
-version = "1.1.0"
+version = "1.1.1"
 description = "Extendable Pentesting Framework"
 category = "main"
 optional = false
@@ -361,7 +361,7 @@ aiohttp = ">=3.8,<4.0"
 aiosqlite = ">=0.17,<0.18"
 argcomplete = ">=2.0,<3.0"
 construct = ">=2.10.67,<3.0.0"
-msgspec = ">=0.8,<0.10"
+msgspec = ">=0.8,<0.11"
 pydantic = ">=1.10,<2.0"
 pygit2 = ">=1.10,<2.0"
 python-can = ">=4.0,<5.0"
@@ -1469,7 +1469,7 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.10,<3.11"
-content-hash = "bc7c69383fabd6e162c1c0c149dd0c856dbfe32f253fb89e01d49465234eca5d"
+content-hash = "bea23703a0e001ec77a8cfdff6ace10ec7db93df4ea42d2e315d6e8e95e8f0bd"
 
 [metadata.files]
 aiofiles = [
@@ -1921,8 +1921,8 @@ frozenlist = [
     {file = "frozenlist-1.3.3.tar.gz", hash = "sha256:58bcc55721e8a90b88332d6cd441261ebb22342e238296bb330968952fbb3a6a"},
 ]
 gallia = [
-    {file = "gallia-1.1.0-py3-none-any.whl", hash = "sha256:34397114cfc784365fcd0de68f4888a621c4508f0ca443b44296f1e18b7588be"},
-    {file = "gallia-1.1.0.tar.gz", hash = "sha256:07f93c70b8df987674d4ac03f6b7c7b76c8c80389b5a28fc9c8e5e50f8c69ab7"},
+    {file = "gallia-1.1.1-py3-none-any.whl", hash = "sha256:d54229093cd36f3135e96a8f966341750c6ee0da69dc39834446ed4e62400470"},
+    {file = "gallia-1.1.1.tar.gz", hash = "sha256:41b0db48c9b2be23e564c4a418fccf132326456277e55e3dfac8e5067c799619"},
 ]
 greenlet = [
     {file = "greenlet-2.0.1-cp27-cp27m-macosx_10_14_x86_64.whl", hash = "sha256:9ed358312e63bf683b9ef22c8e442ef6c5c02973f0c2a939ec1d7b50c974015c"},
