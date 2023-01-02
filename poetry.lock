@@ -861,14 +861,14 @@ test = ["pytest"]
 
 [[package]]
 name = "pyopenssl"
-version = "22.1.0"
+version = "23.0.0"
 description = "Python wrapper module around the OpenSSL library"
 category = "main"
 optional = false
 python-versions = ">=3.6"
 
 [package.dependencies]
-cryptography = ">=38.0.0,<39"
+cryptography = ">=38.0.0,<40"
 
 [package.extras]
 docs = ["sphinx (!=5.2.0,!=5.2.0.post0)", "sphinx-rtd-theme"]
@@ -1457,7 +1457,7 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.10,<3.11"
-content-hash = "e7940e660a5a85ad94e655b7b49938f47f7d3a111b6c98a6f18b1ee091368207"
+content-hash = "a207f0ec5a6f2a902cba399e63311100878a1e115a470f8b38ab86b1f3b7fd7c"
 
 [metadata.files]
 aiofiles = [
@@ -2622,8 +2622,8 @@ pylsp-rope = [
     {file = "pylsp_rope-0.1.10-py3-none-any.whl", hash = "sha256:d5e9094415ff848b2034d4b64b4fdc5ec172ddf4e2a5d85c77bfa2da6f6ec61f"},
 ]
 pyopenssl = [
-    {file = "pyOpenSSL-22.1.0-py3-none-any.whl", hash = "sha256:b28437c9773bb6c6958628cf9c3bebe585de661dba6f63df17111966363dd15e"},
-    {file = "pyOpenSSL-22.1.0.tar.gz", hash = "sha256:7a83b7b272dd595222d672f5ce29aa030f1fb837630ef229f62e72e395ce8968"},
+    {file = "pyOpenSSL-23.0.0-py3-none-any.whl", hash = "sha256:df5fc28af899e74e19fccb5510df423581047e10ab6f1f4ba1763ff5fde844c0"},
+    {file = "pyOpenSSL-23.0.0.tar.gz", hash = "sha256:c1cc5f86bcacefc84dada7d31175cae1b1518d5f60d3d0bb595a67822a868a6f"},
 ]
 pyparsing = [
     {file = "pyparsing-3.0.9-py3-none-any.whl", hash = "sha256:5026bae9a10eeaefb61dab2f09052b9f4307d44aee4eda64b309723d8d206bbc"},
