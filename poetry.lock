@@ -2747,31 +2747,19 @@ files = [
 ]
 
 [[package]]
-name = "types-cryptography"
-version = "3.3.23.2"
-description = "Typing stubs for cryptography"
-category = "main"
-optional = false
-python-versions = "*"
-files = [
-    {file = "types-cryptography-3.3.23.2.tar.gz", hash = "sha256:09cc53f273dd4d8c29fa7ad11fefd9b734126d467960162397bc5e3e604dea75"},
-    {file = "types_cryptography-3.3.23.2-py3-none-any.whl", hash = "sha256:b965d548f148f8e87f353ccf2b7bd92719fdf6c845ff7cedf2abb393a0643e4f"},
-]
-
-[[package]]
 name = "types-pyopenssl"
-version = "22.1.0.2"
+version = "23.0.0.1"
 description = "Typing stubs for pyOpenSSL"
 category = "main"
 optional = false
 python-versions = "*"
 files = [
-    {file = "types-pyOpenSSL-22.1.0.2.tar.gz", hash = "sha256:7a350e29e55bc3ee4571f996b4b1c18c4e4098947db45f7485b016eaa35b44bc"},
-    {file = "types_pyOpenSSL-22.1.0.2-py3-none-any.whl", hash = "sha256:54606a6afb203eb261e0fca9b7f75fa6c24d5ff71e13903c162ffb951c2c64c6"},
+    {file = "types-pyOpenSSL-23.0.0.1.tar.gz", hash = "sha256:cb317e92f75e8b01d1ad4e89cac92062e8eed563205b9762c1ddd82603a056c4"},
+    {file = "types_pyOpenSSL-23.0.0.1-py3-none-any.whl", hash = "sha256:09c2dbbfb743282ba3d71c24a4e90f8b5f2c90f21771ff43ca46de6c4896bf77"},
 ]
 
 [package.dependencies]
-types-cryptography = "*"
+cryptography = ">=35.0.0"
 
 [[package]]
 name = "types-pytz"
@@ -3128,4 +3116,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.11"
-content-hash = "c816a24cef22eaf71b8ed154fefb0a3af5466488fdda7d60346fc8ab3c92bfa5"
+content-hash = "cd27b7598f881c18786670e2764d049990cb8f4a4b300f0fd1938390c8b62540"
