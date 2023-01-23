@@ -1980,19 +1980,19 @@ python-lsp-server = "*"
 
 [[package]]
 name = "pylsp-mypy"
-version = "0.6.3"
+version = "0.6.5"
 description = "Mypy linter for the Python LSP Server"
 category = "dev"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pylsp-mypy-0.6.3.tar.gz", hash = "sha256:06a6fd68c3e829d2c9f633bd96c15b6671a7e411139110ae9747d9245b31c8bd"},
-    {file = "pylsp_mypy-0.6.3-py3-none-any.whl", hash = "sha256:3d623ca05f13cf80c8b9fe61f6ac064855bcbef2d1c9b5cf1c9d40ba6158002e"},
+    {file = "pylsp-mypy-0.6.5.tar.gz", hash = "sha256:14bff75ee48cf958f0f85b5a8a93ae2f43d4c4bb581a6a6effd182daf6ae17a4"},
+    {file = "pylsp_mypy-0.6.5-py3-none-any.whl", hash = "sha256:4a78af649546642d31478fb7c6089e840418f51c2216ef6f1bb200e6b70900a5"},
 ]
 
 [package.dependencies]
 mypy = "*"
-python-lsp-server = "*"
+python-lsp-server = ">=1.7.0"
 toml = "*"
 
 [package.extras]
@@ -2195,14 +2195,14 @@ test = ["coverage", "pycodestyle", "pyflakes", "pylint", "pytest", "pytest-cov"]
 
 [[package]]
 name = "python-lsp-server"
-version = "1.6.0"
+version = "1.7.1"
 description = "Python Language Server for the Language Server Protocol"
 category = "dev"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "python-lsp-server-1.6.0.tar.gz", hash = "sha256:d75cdff9027c4212e5b9e861e9a0219219c8e2c69508d9f24949951dabd0dc1b"},
-    {file = "python_lsp_server-1.6.0-py3-none-any.whl", hash = "sha256:7ea502b1d392888efb841cbfdabb33e6ec96e44ab4cb81dd38aacefe657b1abf"},
+    {file = "python-lsp-server-1.7.1.tar.gz", hash = "sha256:67473bb301f35434b5fa8b21fc5ed5fac27dc8a8446ccec8bae456af52a0aef6"},
+    {file = "python_lsp_server-1.7.1-py3-none-any.whl", hash = "sha256:8f8b382868b161199aa385659b28427890be628d86f54810463a4d0ee0d6d091"},
 ]
 
 [package.dependencies]
@@ -2214,16 +2214,16 @@ setuptools = ">=39.0.0"
 ujson = ">=3.0.0"
 
 [package.extras]
-all = ["autopep8 (>=1.6.0,<1.7.0)", "flake8 (>=5.0.0,<5.1.0)", "mccabe (>=0.7.0,<0.8.0)", "pycodestyle (>=2.9.0,<2.10.0)", "pydocstyle (>=2.0.0)", "pyflakes (>=2.5.0,<2.6.0)", "pylint (>=2.5.0)", "rope (>=0.10.5)", "whatthepatch", "yapf"]
+all = ["autopep8 (>=1.6.0,<1.7.0)", "flake8 (>=5.0.0,<7)", "mccabe (>=0.7.0,<0.8.0)", "pycodestyle (>=2.9.0,<2.11.0)", "pydocstyle (>=6.2.0,<6.3.0)", "pyflakes (>=2.5.0,<3.1.0)", "pylint (>=2.5.0,<3)", "rope (>1.2.0)", "whatthepatch (>=1.0.2,<2.0.0)", "yapf"]
 autopep8 = ["autopep8 (>=1.6.0,<1.7.0)"]
-flake8 = ["flake8 (>=5.0.0,<5.1.0)"]
+flake8 = ["flake8 (>=5.0.0,<7)"]
 mccabe = ["mccabe (>=0.7.0,<0.8.0)"]
-pycodestyle = ["pycodestyle (>=2.9.0,<2.10.0)"]
-pydocstyle = ["pydocstyle (>=2.0.0)"]
-pyflakes = ["pyflakes (>=2.5.0,<2.6.0)"]
-pylint = ["pylint (>=2.5.0)"]
-rope = ["rope (>0.10.5)"]
-test = ["coverage", "flaky", "matplotlib", "numpy", "pandas", "pylint (>=2.5.0)", "pyqt5", "pytest", "pytest-cov"]
+pycodestyle = ["pycodestyle (>=2.9.0,<2.11.0)"]
+pydocstyle = ["pydocstyle (>=6.2.0,<6.3.0)"]
+pyflakes = ["pyflakes (>=2.5.0,<3.1.0)"]
+pylint = ["pylint (>=2.5.0,<3)"]
+rope = ["rope (>1.2.0)"]
+test = ["coverage", "flaky", "matplotlib", "numpy", "pandas", "pylint (>=2.5.0,<3)", "pyqt5", "pytest", "pytest-cov"]
 websockets = ["websockets (>=10.3)"]
 yapf = ["whatthepatch (>=1.0.2,<2.0.0)", "yapf"]
 
@@ -3116,4 +3116,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.11"
-content-hash = "b73a251fb284753aa2a01814208b50950e16590235a3aed2fef87315396363e1"
+content-hash = "b22e269f1ae8c02a3c8c0089e38661b678f1804aa60156fdbee83ca813739626"
