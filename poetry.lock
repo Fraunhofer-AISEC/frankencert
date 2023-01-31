@@ -771,29 +771,29 @@ files = [
 
 [[package]]
 name = "gallia"
-version = "1.1.3"
+version = "1.1.4"
 description = "Extendable Pentesting Framework"
 category = "main"
 optional = false
 python-versions = ">=3.10,<3.12"
 files = [
-    {file = "gallia-1.1.3-py3-none-any.whl", hash = "sha256:d1688c65afa28326810feb0733dbe4c61dd73cbf1d12efb4983f3e7ad3c5812e"},
-    {file = "gallia-1.1.3.tar.gz", hash = "sha256:818c23a207cd742d524a4a55ab8eef2f6f81a3f4662ab636826f22a62ea1329e"},
+    {file = "gallia-1.1.4-py3-none-any.whl", hash = "sha256:a3629aa353270d773157d004faf9eae661bfd3b6aed49a27103a13980687fdb7"},
+    {file = "gallia-1.1.4.tar.gz", hash = "sha256:263f7bc5f2fdd03677f5085801c0dcc740ee2e78a030ffe813ca2857de6f6adf"},
 ]
 
 [package.dependencies]
 aiofiles = ">=22.1,<23.0"
 aiohttp = ">=3.8,<4.0"
-aiosqlite = ">=0.18,<0.19"
+aiosqlite = ">=0.18"
 argcomplete = ">=2.0,<3.0"
 construct = ">=2.10.67,<3.0.0"
-msgspec = ">=0.11,<0.12"
+msgspec = ">=0.11,<0.13"
 pydantic = ">=1.10,<2.0"
 pygit2 = ">=1.10,<2.0"
 python-can = ">=4.0,<5.0"
-tabulate = ">=0.9,<0.10"
+tabulate = ">=0.9"
 tomli = {version = ">=2.0.1,<3.0.0", markers = "python_version < \"3.11\""}
-zstandard = ">=0.19,<0.20"
+zstandard = ">=0.19"
 
 [[package]]
 name = "greenlet"
@@ -3146,4 +3146,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.11"
-content-hash = "3c7e1cf8a6e215a1ab74b23e779d0477e7cc85ba695718fdb00601701140be4d"
+content-hash = "9f14aab35d33406ec40162e78b42cf8ed6110ed3c6cf81bc315600865bd24576"
