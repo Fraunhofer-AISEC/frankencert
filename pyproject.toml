@@ -19,7 +19,7 @@ types-pyOpenSSL = "^23.0.0"
 pandas = "^1.5.2"
 SQLAlchemy = "^2.0.0"
 matplotlib = "^3.6.3"
-pandas-stubs = "^1.5.2.230105"
+pandas-stubs = "^1.5.3.230203"
 
 [tool.poetry.scripts]
 certrunner = "frankencert.runner:main"
