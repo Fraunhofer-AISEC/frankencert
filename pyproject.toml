@@ -17,7 +17,7 @@ pyOpenSSL = "^23.1.1"
 python-mbedtls = "^2.6.1"
 types-pyOpenSSL = "^23.1.0"
 pandas = "^1.5.2"
-SQLAlchemy = "^2.0.4"
+SQLAlchemy = "^2.0.12"
 matplotlib = "^3.7.0"
 pandas-stubs = "^2.0.0.230412"
 
