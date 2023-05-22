@@ -8,11 +8,9 @@ import os
 import random
 import string
 import sys
-import typing
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from cryptography import x509
 from cryptography.hazmat.backends.openssl.backend import Backend
@@ -23,7 +21,7 @@ from cryptography.hazmat.backends.openssl.encode_asn1 import (
     _encode_name_gc,
 )
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import dh, dsa, ec, ed448, ed25519, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed448, ed25519, rsa
 from cryptography.hazmat.primitives.asymmetric.types import (
     PRIVATE_KEY_TYPES,
     PUBLIC_KEY_TYPES,
@@ -60,7 +58,7 @@ class FrankenBackend(Backend):
         self,
         builder: x509.CertificateBuilder,
         private_key: PRIVATE_KEY_TYPES,
-        algorithm: typing.Optional[hashes.HashAlgorithm],
+        algorithm: hashes.HashAlgorithm | None,
     ) -> x509.Certificate:
         if builder._public_key is None:
             raise TypeError("Builder has no public key.")
@@ -136,7 +134,7 @@ class FrankenBackend(Backend):
 _backend = FrankenBackend()
 
 
-def _get_backend(backend: typing.Optional[Backend]) -> Backend:
+def _get_backend(backend: Backend | None) -> Backend:
     global _backend
     return _backend
 
@@ -334,7 +332,7 @@ class FrankenCertGenerator:
         self.self_signed_prob: float = config["self_signed_prob"]
 
     def _generate_priv(self) -> PRIVATE_KEY_TYPES:
-        key: Optional[PRIVATE_KEY_TYPES] = None
+        key: PRIVATE_KEY_TYPES | None = None
         t = self.keytype
         # TODO: Consider RSA in the randomized cert stuff as well.
         if t == "rsa":
@@ -357,7 +355,7 @@ class FrankenCertGenerator:
 
     def _generate_cert(
         self,
-        issuer: Optional[x509.Name],
+        issuer: x509.Name | None,
         signing_key: PRIVATE_KEY_TYPES,
         extensions: dict,
     ) -> tuple[PRIVATE_KEY_TYPES, x509.Certificate]:
@@ -480,7 +478,7 @@ class FrankenCertGenerator:
     def generate(
         self,
         number: int,
-        extensions: Optional[dict] = None,
+        extensions: dict | None = None,
     ) -> list[FRANKENCERT_T]:
         log("Generating frankencerts…")
 

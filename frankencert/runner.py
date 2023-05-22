@@ -51,7 +51,7 @@ CREATE TABLE scan_result (
     out_data text check(json_valid(out_data))
 ) STRICT;
 
-CREATE INDEX success_index ON scan_result(id, success);
+CREATE INDEX success_index ON scan_result(run, success);
 """
 
 

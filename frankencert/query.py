@@ -1,11 +1,9 @@
 import argparse
 import json
-from datetime import datetime
 from enum import IntEnum, auto, unique
 from functools import cache
 
-import pandas as pd
-from sqlalchemy import create_engine  # type: ignore
+import polars as pl
 
 
 @unique
@@ -23,11 +21,11 @@ def list_in_string(needles: list[str], haystack: str) -> bool:
     return False
 
 
-def _classify_go_116(row):
-    if list_in_string(["cannot parse", "failed to parse", "asn1:"], row.stderr):
-        return ErrorClass.PARSE_ERROR.name
-    elif list_in_string(["invalid", "out of range", "malformed"], row.stderr):
-        return ErrorClass.INVALID_VALUE.name
+def _classify_go_116(row) -> ErrorClass:
+    if list_in_string(["cannot parse", "failed to parse", "asn1:"], row["stderr"]):
+        return ErrorClass.PARSE_ERROR
+    elif list_in_string(["invalid", "out of range", "malformed"], row["stderr"]):
+        return ErrorClass.INVALID_VALUE
     elif list_in_string(
         [
             "elliptic curve",
@@ -36,17 +34,17 @@ def _classify_go_116(row):
             "signature algorithm",
             "curve point",
         ],
-        row.stderr,
+        row["stderr"],
     ):
-        return ErrorClass.CRYPTO_ERROR.name
-    return ErrorClass.UNCATEGORIZED.name
+        return ErrorClass.CRYPTO_ERROR
+    return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go_117(row):
-    if list_in_string(["cannot parse", "failed to parse"], row.stderr):
-        return ErrorClass.PARSE_ERROR.name
-    elif list_in_string(["invalid", "out of range", "malformed"], row.stderr):
-        return ErrorClass.INVALID_VALUE.name
+def _classify_go_117(row) -> ErrorClass:
+    if list_in_string(["cannot parse", "failed to parse"], row["stderr"]):
+        return ErrorClass.PARSE_ERROR
+    elif list_in_string(["invalid", "out of range", "malformed"], row["stderr"]):
+        return ErrorClass.INVALID_VALUE
     elif list_in_string(
         [
             "elliptic curve",
@@ -55,17 +53,17 @@ def _classify_go_117(row):
             "signature algorithm",
             "curve point",
         ],
-        row.stderr,
+        row["stderr"],
     ):
-        return ErrorClass.CRYPTO_ERROR.name
-    return ErrorClass.UNCATEGORIZED.name
+        return ErrorClass.CRYPTO_ERROR
+    return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go_118(row):
-    if list_in_string(["cannot parse", "failed to parse"], row.stderr):
-        return ErrorClass.PARSE_ERROR.name
-    elif "invalid" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
+def _classify_go_118(row) -> ErrorClass:
+    if list_in_string(["cannot parse", "failed to parse"], row["stderr"]):
+        return ErrorClass.PARSE_ERROR
+    elif "invalid" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
     elif list_in_string(
         [
             "elliptic curve",
@@ -74,19 +72,19 @@ def _classify_go_118(row):
             "signature algorithm",
             "curve point",
         ],
-        row.stderr,
+        row["stderr"],
     ):
-        return ErrorClass.CRYPTO_ERROR.name
-    return ErrorClass.UNCATEGORIZED.name
+        return ErrorClass.CRYPTO_ERROR
+    return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go_119(row):
-    if list_in_string(["invalid", "malformed"], row.stderr):
-        return ErrorClass.INVALID_VALUE.name
-    elif "out of range" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif list_in_string(["cannot parse", "failed to parse"], row.stderr):
-        return ErrorClass.PARSE_ERROR.name
+def _classify_go_119(row) -> ErrorClass:
+    if list_in_string(["invalid", "malformed"], row["stderr"]):
+        return ErrorClass.INVALID_VALUE
+    elif "out of range" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif list_in_string(["cannot parse", "failed to parse"], row["stderr"]):
+        return ErrorClass.PARSE_ERROR
     elif list_in_string(
         [
             "elliptic curve",
@@ -95,43 +93,43 @@ def _classify_go_119(row):
             "signature algorithm",
             "curve point",
         ],
-        row.stderr,
+        row["stderr"],
     ):
-        return ErrorClass.CRYPTO_ERROR.name
+        return ErrorClass.CRYPTO_ERROR
     else:
-        return ErrorClass.UNCATEGORIZED.name
+        return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go(row):
+def _classify_go(row) -> ErrorClass:
     return _classify_go_119(row)
 
 
-def _classify_python(row):
-    if "InvalidValue" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif "not a valid X509 version" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif "ParseError" in row.stderr:
-        return ErrorClass.PARSE_ERROR.name
+def _classify_python(row) -> ErrorClass:
+    if "InvalidValue" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif "not a valid X509 version" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif "ParseError" in row["stderr"]:
+        return ErrorClass.PARSE_ERROR
     else:
-        return ErrorClass.UNCATEGORIZED.name
+        return ErrorClass.UNCATEGORIZED
 
 
-def _classify_gnutls(row):
-    if "ASN1 parser" in row.stderr:
-        return ErrorClass.PARSE_ERROR.name
-    elif "Error in the time fields" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif "Unknown Subject" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif "Duplicate extension" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif "time encoding is invalid" in row.stderr:
-        return ErrorClass.INVALID_VALUE.name
-    elif "Error in the certificate" in row.stderr:
-        return ErrorClass.UNCATEGORIZED.name
+def _classify_gnutls(row) -> ErrorClass:
+    if "ASN1 parser" in row["stderr"]:
+        return ErrorClass.PARSE_ERROR
+    elif "Error in the time fields" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif "Unknown Subject" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif "Duplicate extension" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif "time encoding is invalid" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif "Error in the certificate" in row["stderr"]:
+        return ErrorClass.UNCATEGORIZED
     else:
-        return ErrorClass.UNCATEGORIZED.name
+        return ErrorClass.UNCATEGORIZED
 
 
 def _mbedtls_get_error_code(s: str) -> int:
@@ -145,156 +143,179 @@ def _mbedtls_get_error_code(s: str) -> int:
         return int(substr, 0)
 
 
-def _classify_mbeldtls(row) -> str:
-    match _mbedtls_get_error_code(row.stderr):
+def _classify_mbeldtls(row) -> ErrorClass:
+    match _mbedtls_get_error_code(row["stderr"]):
         case 0x2400 | 0x23E0 | 0x2562 | 0x2300 | 0x2580 | 0x2500 | 0x23E2:
-            return ErrorClass.INVALID_VALUE.name
+            return ErrorClass.INVALID_VALUE
         case 0x2680 | 0x2080 | 0x3D00 | 0x3C80 | 0x3A00 | 0x262E | 0x3B00:
-            return ErrorClass.CRYPTO_ERROR.name
+            return ErrorClass.CRYPTO_ERROR
         case 0x21E6 | 0x2566 | 0x2564:
             return ErrorClass.PARSE_ERROR
         case _:
-            return ErrorClass.UNCATEGORIZED.name
+            return ErrorClass.UNCATEGORIZED
 
 
-def get_error_class(row):
-    if (l := row.loader).startswith("GoPlugin"):
-        if "1.19" in l:
-            return _classify_go_119(row)
-        elif "1.18" in l:
-            return _classify_go_118(row)
-        elif "1.17" in l:
-            return _classify_go_117(row)
-        elif "1.16" in l:
-            return _classify_go_116(row)
+def get_error_class(row) -> str | None:
+    if (loader := row["loader"]).startswith("GoPlugin"):
+        if "1.19" in loader:
+            return _classify_go_119(row).name
+        elif "1.18" in loader:
+            return _classify_go_118(row).name
+        elif "1.17" in loader:
+            return _classify_go_117(row).name
+        elif "1.16" in loader:
+            return _classify_go_116(row).name
         else:
-            return _classify_go(row)
-    elif row.loader == "PythonPlugin":
-        return _classify_python(row)
-    elif row.loader == "GNUTLS_Plugin":
-        return _classify_gnutls(row)
-    elif row.loader == "MBED_TLS_Plugin":
-        return _classify_mbeldtls(row)
+            return _classify_go(row).name
+    elif row["loader"] == "PythonPlugin":
+        return _classify_python(row).name
+    elif row["loader"] == "GNUTLS_Plugin":
+        return _classify_gnutls(row).name
+    elif row["loader"] == "MBED_TLS_Plugin":
+        return _classify_mbeldtls(row).name
     return None
 
 
 class Database:
-    def __init__(self, path_uri: str) -> None:
-        self.engine = create_engine(path_uri)
+    def __init__(self, uri: str) -> None:
+        self.uri = uri
 
     @cache
-    def runs(self) -> pd.DataFrame:
-        with self.engine.connect() as conn, conn.begin():
-            df = pd.read_sql_query("SELECT * FROM scan_run", conn)
-
-        df.start_time = df.start_time.apply(datetime.fromtimestamp)
-        df.end_time = df.end_time.apply(datetime.fromtimestamp)
-        df["duration"] = df.end_time - df.start_time
+    def runs(self) -> pl.DataFrame:
+        df = pl.read_database(
+            """SELECT 
+                    id,
+                    command,
+                    start_time,
+                    end_time,
+                    end_time - start_time AS duration
+               FROM scan_run""",
+            self.uri,
+            engine="adbc",
+        )
+        df = df.with_columns(
+            [
+                pl.from_epoch(pl.col("end_time")),
+                pl.from_epoch(pl.col("start_time")),
+                (pl.col("duration") / 3600),
+            ]
+        )
 
         return df
 
     @cache
-    def results(self, index: int) -> pd.DataFrame:
-        with self.engine.connect() as conn, conn.begin():
-            df = pd.read_sql_query(
-                f"""SELECT
-                        id,
-                        loader,
-                        start_time,
-                        end_time,
-                        end_time - start_time AS duration,
-                        in_data -> "$.in.stdin" AS stdin,
-                        out_data -> "$.out.stderr" AS stderr,
-                        out_data -> "$.out.stdout" AS stdout
-                    FROM scan_result
-                        WHERE scan_result.run == {index}
-                        AND scan_result.success == FALSE;
-                """,
-                conn,
-            )
-        df.start_time = df.start_time.apply(datetime.fromtimestamp)
-        df.end_time = df.end_time.apply(datetime.fromtimestamp)
-        df["error_class"] = df.apply(get_error_class, axis=1)
+    def results(self, index: int) -> pl.DataFrame:
+        df = pl.read_database(
+            f"""SELECT
+                    id,
+                    loader,
+                    start_time,
+                    end_time,
+                    end_time - start_time AS duration,
+                    in_data -> "$.in.stdin" AS stdin,
+                    out_data -> "$.out.stderr" AS stderr,
+                    out_data -> "$.out.stdout" AS stdout
+                FROM scan_result
+                    WHERE scan_result.run == {index}
+                    AND scan_result.success == FALSE;
+            """,
+            self.uri,
+            engine="adbc",
+        )
+
+        df = df.with_columns(
+            [
+                pl.from_epoch(pl.col("end_time")),
+                pl.from_epoch(pl.col("start_time")),
+                (pl.col("duration") / 3600),
+                (
+                    pl.struct(["loader", "stderr", "stdout"]).apply(get_error_class)
+                ).alias("error_class"),
+            ]
+        )
 
         return df
 
     @cache
-    def used_loaders(self, index: int) -> pd.DataFrame:
-        with self.engine.connect() as conn, conn.begin():
-            df = pd.read_sql_query(
-                f"""SELECT DISTINCT
+    def used_loaders(self, index: int) -> pl.DataFrame:
+        df = pl.read_database(
+            f"""SELECT DISTINCT
                         loader
                     FROM scan_result
                         WHERE scan_result.run == {index};
                 """,
-                conn,
-            )
+            self.uri,
+            engine="adbc",
+        )
         return df
 
     @cache
     def total_testruns(self, index: int) -> int:
-        with self.engine.connect() as conn, conn.begin():
-            df = pd.read_sql_query(
-                f"""SELECT
-                        COUNT(*) AS total_testruns
+        df = pl.read_database(
+            f"""SELECT
+                    COUNT(*) AS total_testruns
                     FROM scan_result
                     WHERE scan_result.run == {index};
                 """,
-                conn,
-            )
-            return int(df.total_testruns[0])
+            self.uri,
+            engine="adbc",
+        )
+        return int(df["total_testruns"][0])
 
     @cache
     def run_duration(self, index: int) -> float:
-        with self.engine.connect() as conn, conn.begin():
-            df = pd.read_sql_query(
-                f"""SELECT
+        df = pl.read_database(
+            f"""SELECT
                         end_time - start_time AS run_duration
                     FROM scan_run where id == {index};
                 """,
-                conn,
-            )
-            return float(df.run_duration)
+            self.uri,
+            engine="adbc",
+        )
+        return float(df["run_duration"][0])
 
 
 def cmd_show_runs(args: argparse.Namespace, db: Database) -> None:
     df = db.runs()
-    print(df.to_json(orient="records", lines=True))
+    print(df.write_json(row_oriented=True))
 
 
 def cmd_show_results(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
     if args.loader is not None:
-        df = df[df.loader == args.loader]
+        df = df.filter(pl.col("loader") == args.loader)
 
-    print(df.to_json(orient="records", lines=True))
+    print(df.write_json(row_oriented=True))
 
 
 def cmd_show_stats(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
 
-    errors_total = int(df.id.count())
+    errors_total = len(df)
     out = {
         "errors_total": errors_total,
         "error_ratio": errors_total / db.total_testruns(args.index),
-        "run_duration": db.run_duration(args.index),
+        "run_duration": db.run_duration(args.index) / 3600,
         "total_testruns": db.total_testruns(args.index),
         "loaders": [],
     }
 
-    for loader_name in df.loader.unique():
-        loader = {
-            "name": loader_name,
-        }
+    for row in df.unique(subset=["loader"]).select(pl.col("loader")).rows():
+        loader_name = row[0]
+        loader = {"name": loader_name}
 
-        df2 = df[df.loader == loader_name]
-        errors = int(df2.loader.count())
+        df2 = df.filter(pl.col("loader") == loader_name)
+        errors = len(df2)
         loader["errors_total"] = errors
-        loader["duration_mean"] = float(df2.duration.mean())
-
-        error_classes_df = df2.groupby("error_class").error_class.count()
+        loader["duration_mean"] = df2.select(pl.col("duration")).mean().item()
         loader["error_classes"] = []
-        for k, v in error_classes_df.astype(int).to_dict().items():
+
+        error_classes_df = df2.groupby("error_class").agg(
+            pl.count(),
+        )
+        d = error_classes_df.to_dict(as_series=False)
+        for i, k in enumerate(d["error_class"]):
+            v = d["count"][i]
             loader["error_classes"].append(
                 {
                     "name": k,
@@ -307,78 +328,90 @@ def cmd_show_stats(args: argparse.Namespace, db: Database) -> None:
     print(json.dumps(out))
 
 
-def cmd_show_certs(args: argparse.Namespace, db: Database):
+def cmd_show_certs(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
 
     out = {}
     out["per_loader"] = {}
-    for loader in df.loader.unique():
-        if loader not in out["per_loader"]:
-            out["per_loader"][loader] = {}
+    for row in df.unique(subset=["loader"]).select(pl.col("loader")).iter_rows():
+        loader_name = row[0]
+        if loader_name not in out["per_loader"]:
+            out["per_loader"][loader_name] = {}
 
-        subdict = out["per_loader"][loader]
-        df2 = df[df.loader == loader]
+        subdict = out["per_loader"][loader_name]
+        df2 = df.filter(pl.col("loader") == loader_name)
 
-        for error_class in df2.error_class.unique():
+        for err_row in (
+            df2.unique(subset=["error_class"]).select(pl.col("error_class")).iter_rows()
+        ):
+            error_class = err_row[0]
             if error_class not in subdict:
                 subdict[error_class] = {}
 
             subdict = subdict[error_class]
-
-            df3 = df2[df2.error_class == error_class]
-            subdict["cert"] = list(df3.stdin)
+            subdict["cert"] = [
+                x[0]
+                for x in df2.filter(pl.col("error_class") == error_class)
+                .select(pl.col("stdin"))
+                .rows()
+            ]
 
     print(json.dumps(out))
 
 
-def cmd_show_loaders(args: argparse.Namespace, db: Database):
+def cmd_show_loaders(args: argparse.Namespace, db: Database) -> None:
     df = db.used_loaders(args.index)
-    print(df.to_json(orient="records", lines=True))
+    print(df.write_json(row_oriented=True))
 
 
-def cmd_show_errors(args: argparse.Namespace, db: Database):
+def cmd_show_errors(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
 
     out = {}
     out["per_loader"] = {}
-    for loader in df.loader.unique():
-        if loader not in out["per_loader"]:
-            out["per_loader"][loader] = {}
+    for row in df.unique(subset=["loader"]).iter_rows(named=True):
+        loader_name = row["loader"]
+        if loader_name not in out["per_loader"]:
+            out["per_loader"][loader_name] = {}
 
-        out["per_loader"][loader]["error_class"] = {}
-        for error_class in df.error_class.unique():
+        out["per_loader"][loader_name]["error_class"] = {}
+        for err_row in df.unique(subset=["error_class"]).iter_rows(named=True):
+            error_class = err_row["error_class"]
             if args.uncategorized and error_class != ErrorClass.UNCATEGORIZED.name:
                 continue
 
-            if error_class not in out["per_loader"][loader]["error_class"]:
-                out["per_loader"][loader]["error_class"][error_class] = {}
+            if error_class not in out["per_loader"][loader_name]["error_class"]:
+                out["per_loader"][loader_name]["error_class"][error_class] = {}
 
-            df2 = df[df.loader == loader]
-            df3 = df2[df2.error_class == error_class]
-            subdict = out["per_loader"][loader]["error_class"][error_class]
-            subdict["stderr"] = list(df3.stderr.unique())
-            subdict["stdout"] = list(df3.stdout.unique())
+            df2 = df.filter(
+                (pl.col("loader") == loader_name)
+                & (pl.col("error_class") == error_class)
+            )
+            subdict = out["per_loader"][loader_name]["error_class"][error_class]
+            subdict["stderr"] = df2.unique(subset=["stderr"])["stderr"].to_list()
+            subdict["stdout"] = df2.unique(subset=["stdout"])["stdout"].to_list()
 
     print(json.dumps(out))
 
 
-def cmd_show_overlap(args: argparse.Namespace, db: Database):
+def cmd_show_overlap(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
 
-    df["cert_id"] = df.stdin.rank(method="dense", ascending=False).astype(int)
+    df = df.with_columns([pl.col("stdin").rank(method="dense").alias("cert_id")])
 
-    df = df[["cert_id", "loader"]]
-    df = pd.DataFrame(df.groupby("cert_id").loader.apply(list))
+    group = df.groupby("cert_id")
 
-    print(f"failed unique certs: {len(df)}")
+    print(f"failed unique certs: {len(group.all())}")
 
-    df["loader_count"] = df.loader.apply(len)
-
-    overlap_df = df[df.loader_count > 1]
-    foo = df[df.loader_count == 1]
-    foo["loader"] = foo.loader.apply(lambda x: x[0])
-    print(foo.groupby("loader").agg("count"))
-    print(f"failed in multiple loaders: {len(overlap_df)}")
+    print(
+        group.agg(
+            [
+                pl.col("stdin"),
+                pl.col("loader"),
+                pl.col("loader").count().alias("n_loaders"),
+            ]
+        ).filter(pl.col("n_loaders") > 1)
+    )
 
 
 # certs anschaun, die bei mehr als einem loader gefailed sind und gruppe vergleichen
