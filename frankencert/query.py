@@ -2,6 +2,7 @@ import argparse
 import json
 from enum import IntEnum, auto, unique
 from functools import cache
+from typing import Any, TypedDict
 
 import polars as pl
 
@@ -21,7 +22,13 @@ def list_in_string(needles: list[str], haystack: str) -> bool:
     return False
 
 
-def _classify_go_116(row) -> ErrorClass:
+class RowType(TypedDict):
+    stderr: str
+    stdout: str
+    loader: str
+
+
+def _classify_go_116(row: RowType) -> ErrorClass:
     if list_in_string(["cannot parse", "failed to parse", "asn1:"], row["stderr"]):
         return ErrorClass.PARSE_ERROR
     elif list_in_string(["invalid", "out of range", "malformed"], row["stderr"]):
@@ -40,7 +47,7 @@ def _classify_go_116(row) -> ErrorClass:
     return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go_117(row) -> ErrorClass:
+def _classify_go_117(row: RowType) -> ErrorClass:
     if list_in_string(["cannot parse", "failed to parse"], row["stderr"]):
         return ErrorClass.PARSE_ERROR
     elif list_in_string(["invalid", "out of range", "malformed"], row["stderr"]):
@@ -59,7 +66,7 @@ def _classify_go_117(row) -> ErrorClass:
     return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go_118(row) -> ErrorClass:
+def _classify_go_118(row: RowType) -> ErrorClass:
     if list_in_string(["cannot parse", "failed to parse"], row["stderr"]):
         return ErrorClass.PARSE_ERROR
     elif "invalid" in row["stderr"]:
@@ -78,7 +85,7 @@ def _classify_go_118(row) -> ErrorClass:
     return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go_119(row) -> ErrorClass:
+def _classify_go_119(row: RowType) -> ErrorClass:
     if list_in_string(["invalid", "malformed"], row["stderr"]):
         return ErrorClass.INVALID_VALUE
     elif "out of range" in row["stderr"]:
@@ -100,11 +107,11 @@ def _classify_go_119(row) -> ErrorClass:
         return ErrorClass.UNCATEGORIZED
 
 
-def _classify_go(row) -> ErrorClass:
+def _classify_go(row: RowType) -> ErrorClass:
     return _classify_go_119(row)
 
 
-def _classify_python(row) -> ErrorClass:
+def _classify_python(row: RowType) -> ErrorClass:
     if "InvalidValue" in row["stderr"]:
         return ErrorClass.INVALID_VALUE
     elif "not a valid X509 version" in row["stderr"]:
@@ -115,22 +122,23 @@ def _classify_python(row) -> ErrorClass:
         return ErrorClass.UNCATEGORIZED
 
 
-def _classify_gnutls(row) -> ErrorClass:
-    if "ASN1 parser" in row["stderr"]:
-        return ErrorClass.PARSE_ERROR
-    elif "Error in the time fields" in row["stderr"]:
-        return ErrorClass.INVALID_VALUE
-    elif "Unknown Subject" in row["stderr"]:
-        return ErrorClass.INVALID_VALUE
-    elif "Duplicate extension" in row["stderr"]:
-        return ErrorClass.INVALID_VALUE
-    elif "time encoding is invalid" in row["stderr"]:
-        return ErrorClass.INVALID_VALUE
-    elif "Error in the certificate" in row["stderr"]:
-        return ErrorClass.UNCATEGORIZED
-    else:
-        return ErrorClass.UNCATEGORIZED
+def _classify_gnutls(row: RowType) -> ErrorClass:
+    out = ErrorClass.UNCATEGORIZED
 
+    if "ASN1 parser" in row["stderr"]:
+        out = ErrorClass.PARSE_ERROR
+    elif "Error in the time fields" in row["stderr"]:
+        out = ErrorClass.INVALID_VALUE
+    elif "Unknown Subject" in row["stderr"]:
+        out = ErrorClass.INVALID_VALUE
+    elif "Duplicate extension" in row["stderr"]:
+        out = ErrorClass.INVALID_VALUE
+    elif "time encoding is invalid" in row["stderr"]:
+        out = ErrorClass.INVALID_VALUE
+    elif "Error in the certificate" in row["stderr"]:
+        out = ErrorClass.UNCATEGORIZED
+
+    return out
 
 def _mbedtls_get_error_code(s: str) -> int:
     substr = s.splitlines()[-1]
@@ -143,7 +151,7 @@ def _mbedtls_get_error_code(s: str) -> int:
         return int(substr, 0)
 
 
-def _classify_mbeldtls(row) -> ErrorClass:
+def _classify_mbeldtls(row: RowType) -> ErrorClass:
     match _mbedtls_get_error_code(row["stderr"]):
         case 0x2400 | 0x23E0 | 0x2562 | 0x2300 | 0x2580 | 0x2500 | 0x23E2:
             return ErrorClass.INVALID_VALUE
@@ -155,25 +163,30 @@ def _classify_mbeldtls(row) -> ErrorClass:
             return ErrorClass.UNCATEGORIZED
 
 
-def get_error_class(row) -> str | None:
-    if (loader := row["loader"]).startswith("GoPlugin"):
+def get_error_class(row: RowType) -> str | None:
+    out = None
+    loader = row["loader"]
+
+    if loader.startswith("GoPlugin"):
         if "1.19" in loader:
-            return _classify_go_119(row).name
+            out = _classify_go_119(row).name
         elif "1.18" in loader:
-            return _classify_go_118(row).name
+            out = _classify_go_118(row).name
         elif "1.17" in loader:
-            return _classify_go_117(row).name
+            out = _classify_go_117(row).name
         elif "1.16" in loader:
-            return _classify_go_116(row).name
+            out = _classify_go_116(row).name
         else:
-            return _classify_go(row).name
-    elif row["loader"] == "PythonPlugin":
-        return _classify_python(row).name
-    elif row["loader"] == "GNUTLS_Plugin":
-        return _classify_gnutls(row).name
-    elif row["loader"] == "MBED_TLS_Plugin":
-        return _classify_mbeldtls(row).name
-    return None
+            out = _classify_go(row).name
+        return out
+    elif loader == "PythonPlugin":
+        out = _classify_python(row).name
+    elif loader == "GNUTLS_Plugin":
+        out = _classify_gnutls(row).name
+    elif loader == "MBED_TLS_Plugin":
+        out = _classify_mbeldtls(row).name
+
+    return out
 
 
 class Database:
@@ -323,7 +336,7 @@ def cmd_show_stats(args: argparse.Namespace, db: Database) -> None:
                     "error_ratio": v / errors,
                 }
             )
-        out["loaders"].append(loader)
+        out["loaders"].append(loader)  # type: ignore
 
     print(json.dumps(out))
 
@@ -331,7 +344,7 @@ def cmd_show_stats(args: argparse.Namespace, db: Database) -> None:
 def cmd_show_certs(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
 
-    out = {}
+    out: dict[str, Any] = {}
     out["per_loader"] = {}
     for row in df.unique(subset=["loader"]).select(pl.col("loader")).iter_rows():
         loader_name = row[0]
@@ -367,7 +380,7 @@ def cmd_show_loaders(args: argparse.Namespace, db: Database) -> None:
 def cmd_show_errors(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
 
-    out = {}
+    out: dict[str, Any] = {}
     out["per_loader"] = {}
     for row in df.unique(subset=["loader"]).iter_rows(named=True):
         loader_name = row["loader"]
@@ -417,7 +430,7 @@ def cmd_show_overlap(args: argparse.Namespace, db: Database) -> None:
 # certs anschaun, die bei mehr als einem loader gefailed sind und gruppe vergleichen
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> (argparse.Namespace, argparse.ArgumentParser):
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
@@ -460,11 +473,11 @@ def parse_args() -> argparse.Namespace:
     overlap_parser.add_argument("index")
     overlap_parser.set_defaults(cmd="overlap")
 
-    return parser.parse_args()
+    return parser.parse_args(), parser
 
 
 def main() -> None:
-    args = parse_args()
+    args, parser = parse_args()
     db = Database(args.db)
 
     if "cmd" in args:
@@ -483,6 +496,8 @@ def main() -> None:
                 cmd_show_errors(args, db)
             case "overlap":
                 cmd_show_overlap(args, db)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
