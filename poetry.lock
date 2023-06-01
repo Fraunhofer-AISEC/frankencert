@@ -2202,14 +2202,14 @@ files = [
 
 [[package]]
 name = "types-aiofiles"
-version = "0.8.11"
+version = "23.1.0.3"
 description = "Typing stubs for aiofiles"
 category = "dev"
 optional = false
 python-versions = "*"
 files = [
-    {file = "types-aiofiles-0.8.11.tar.gz", hash = "sha256:1f93aa68e47de1379f45eef9acd34faa0f9341628921cd6aede666e6e559a5a8"},
-    {file = "types_aiofiles-0.8.11-py3-none-any.whl", hash = "sha256:be6715fffd1c7f84c9316000ba8bbc66a884246dbd2902c163ebc2d67315206b"},
+    {file = "types-aiofiles-23.1.0.3.tar.gz", hash = "sha256:ccd7b4db06c66cb7145802b1d9cf33bd6d8e88c7fe63a3ba5551671faac32648"},
+    {file = "types_aiofiles-23.1.0.3-py3-none-any.whl", hash = "sha256:9634f06c5fc331ec660d1e80faa031aa2e0aa388fbb6312f936c7076ac8a9fd3"},
 ]
 
 [[package]]
@@ -2549,4 +2549,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "66293a27eec402474ac262d311a1738247fe88ca9971566323ba17e97a89f687"
+content-hash = "fdac99ce0c4506b97e51b5f3b73ad7d382bd0672cb43940f769138c618831cbb"
