@@ -9,12 +9,15 @@ import sys
 import warnings
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace
-from base64 import b64encode
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+import cryptography
+import mbedtls
+import OpenSSL.version
 from cryptography.utils import CryptographyDeprecationWarning
 from gallia.command import Script
 from gallia.config import Config, load_config_file
@@ -22,37 +25,55 @@ from mbedtls.x509 import CRT as MBEDCertificate
 from OpenSSL.crypto import FILETYPE_PEM
 from OpenSSL.crypto import load_certificate as openssl_load_cert
 
+from frankencert.asn1 import parse_asn1_json
+
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
 from cryptography import x509  # noqa
 
-SCHEMA_VERSION = 0
 SCHEMA = """
-CREATE TABLE version (
-    version integer
+CREATE TABLE scan_run (
+    id INTEGER PRIMARY KEY,
+    command TEXT check(json_valid(command)),
+    start_time REAL NOT NULL,
+    end_time REAL,
+    exit_code INTEGER
 ) STRICT;
 
-CREATE TABLE scan_run (
-    id integer primary key,
-    command text check(json_valid(command)),
-    start_time real not null,
-    end_time real,
-    exit_code int
+CREATE TABLE plugin (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    version TEXT
+) STRICT;
+
+CREATE TABLE stdin (
+    id INTEGER PRIMARY KEY,
+    asn1_tree TEXT check(json_valid(asn1_tree)),
+    zlint_result TEXT check(json_valid(zlint_result)),
+    data BLOB
 ) STRICT;
 
 CREATE TABLE scan_result (
-    id integer primary key,
-    run int not null references scan_run(id) on update cascade on delete cascade,
-    loader text not null,
-    start_time real not null,
-    end_time real not null,
-    success int,
-    in_data text check(json_valid(in_data)),
-    out_data text check(json_valid(out_data))
+    id INTEGER PRIMARY KEY,
+    run INTEGER NOT NULL REFERENCES scan_run(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    loader TEXT NOT NULL,
+    start_time REAL NOT NULL,
+    end_time REAL NOT NULL,
+    success INTEGER,
+    stdin_id INTEGER REFERENCES stdin(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    stdout BLOB,
+    stderr BLOB
 ) STRICT;
 
 CREATE INDEX success_index ON scan_result(run, success);
+CREATE INDEX loader_index ON scan_result(run, loader);
 """
+
+
+def zlint(cert: bytes) -> str:
+    p = subprocess.run(["zlint"], input=cert, capture_output=True, check=True)
+    return p.stdout.decode()
 
 
 class BasePlugin(ABC):
@@ -66,18 +87,39 @@ class BasePlugin(ABC):
     def run(self, cert: bytes) -> dict[str, Any]:
         ...
 
+    @property
+    def name(self) -> str:
+        return repr(self)
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        ...
+
+    @property
+    @abstractmethod
+    def version(self) -> str:
+        ...
+
 
 class SubprocessPlugin(BasePlugin):
     COMMAND: list[str] = []
+    VERSION_COMMAND: list[str] = []
 
-    def __init__(self, command: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        command: list[str] | None = None,
+        version_command: list[str] | None = None,
+    ) -> None:
         self.command = self.COMMAND if command is None else command
+        self.version_command = (
+            self.VERSION_COMMAND if version_command is None else version_command
+        )
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.command})"
 
     def run(self, cert: bytes) -> dict[str, Any]:
-        out = {}
         p = subprocess.run(
             self.command,
             input=cert,
@@ -85,20 +127,39 @@ class SubprocessPlugin(BasePlugin):
         )
 
         if p.returncode != 0:
-            try:
-                out["stderr"] = p.stderr.decode().strip()
-            except UnicodeDecodeError:
-                out["stderr"] = f"base64:{b64encode(p.stderr).decode()}"
-            try:
-                out["stdout"] = p.stdout.decode().strip()
-            except UnicodeDecodeError:
-                out["stdout"] = f"base64:{b64encode(p.stdout).decode()}"
+            return {
+                "stderr": p.stderr,
+                "stdout": p.stdout,
+                "exitcode": p.returncode,
+            }
+        return {}
 
-        return out
+    @property
+    def description(self) -> str:
+        return f"calls {self.command} as a subprocess"
+
+    @property
+    def version(self) -> str:
+        p = subprocess.run(
+            self.version_command,
+            capture_output=True,
+            check=True,
+        )
+        return p.stdout.decode()
 
 
 class GoPlugin(SubprocessPlugin):
-    pass
+    def __init__(
+        self,
+        command: list[str],
+        version: str,
+    ) -> None:
+        self._version = version
+        super().__init__(command)
+
+    @property
+    def version(self) -> str:
+        return self._version
 
 
 class GNUTLS_Plugin(SubprocessPlugin):
@@ -107,6 +168,10 @@ class GNUTLS_Plugin(SubprocessPlugin):
         "--certificate-info",
         "--load-certificate",
         "/dev/stdin",
+    ]
+    VERSION_COMMAND = [
+        "certtool",
+        "--version",
     ]
 
 
@@ -120,6 +185,14 @@ class MBED_TLS_Plugin(BasePlugin):
 
         return out
 
+    @property
+    def version(self) -> str:
+        return mbedtls.version.version
+
+    @property
+    def description(self) -> str:
+        return "mbedtls via a wrapper python library in process"
+
 
 class OpenSSL_Plugin(BasePlugin):
     def run(self, cert: bytes) -> dict[str, Any]:
@@ -131,6 +204,14 @@ class OpenSSL_Plugin(BasePlugin):
 
         return out
 
+    @property
+    def description(self) -> str:
+        return OpenSSL.version.__summary__
+
+    @property
+    def version(self) -> str:
+        return OpenSSL.version.__version__
+
 
 class PythonPlugin(BasePlugin):
     def run(self, cert: bytes) -> dict[str, Any]:
@@ -141,6 +222,14 @@ class PythonPlugin(BasePlugin):
             out["stderr"] = str(e)
 
         return out
+
+    @property
+    def description(self) -> str:
+        return "python cryptography package"
+
+    @property
+    def version(self) -> str:
+        return cryptography.__version__
 
 
 class DBHandler:
@@ -158,10 +247,6 @@ class DBHandler:
 
     def create(self) -> None:
         self.cur.executescript(SCHEMA)
-        self.cur.execute(
-            "INSERT INTO version(version) VALUES(?)",
-            (SCHEMA_VERSION,),
-        )
 
     @classmethod
     def connect(cls, path: Path) -> DBHandler:
@@ -182,20 +267,15 @@ class DBHandler:
 
         if create:
             cur.executescript(SCHEMA)
-            cur.execute(
-                "INSERT INTO version(version) VALUES(?)",
-                (SCHEMA_VERSION,),
-            )
             db.commit()
-        else:
-            cur.execute("SELECT version from version;")
-            res = cur.fetchone()
-            if res is None:
-                raise RuntimeError("no schema version")
-            if (schema_version := res[0]) != SCHEMA_VERSION:
-                raise RuntimeError(f"unsupported schema version: {schema_version}")
 
         return cls(path, db, cur)
+
+    def add_plugin(self, name: str, description: str, version: str) -> None:
+        self.cur.execute(
+            """INSERT INTO plugin(name, description, version) VALUES(?, ?, ?)""",
+            (name, description, version),
+        )
 
     def run_add(self, command: list[str], start_time: datetime) -> None:
         self.cur.execute(
@@ -211,14 +291,52 @@ class DBHandler:
             (end_time.timestamp(), exit_code, self.run_id),
         )
 
+    def stdin_add(self, data: bytes) -> int:
+        self.cur.execute(
+            "INSERT INTO stdin(data) VALUES(?)",
+            (data,),
+        )
+        assert self.cur.lastrowid
+        return self.cur.lastrowid
+
+    def get_certs(self) -> Iterator[tuple[int, bytes]]:
+        cur = self.cur.execute(
+            "SELECT id, data from stdin",
+        )
+        for row in cur.fetchall():
+            yield (row[0], row[1])
+
+    def zlint_result_add(self, cert_id: int, cert: bytes) -> None:
+        try:
+            zlint_result = json.dumps({"result": zlint(cert), "success": True})
+        except subprocess.SubprocessError as e:
+            zlint_result = json.dumps({"result": str(e), "success": False})
+
+        self.cur.execute(
+            """UPDATE stdin SET zlint_result=? WHERE id==?""", (zlint_result, cert_id)
+        )
+
+    def asn1_tree_add(self, cert_id: int, cert: bytes) -> None:
+        try:
+            asn1_tree = json.dumps(
+                {"result": parse_asn1_json(cert.decode()), "success": True}
+            )
+        except Exception as e:
+            asn1_tree = json.dumps({"result": str(e), "success": False})
+
+        self.cur.execute(
+            """UPDATE stdin SET asn1_tree=? WHERE id==?""", (asn1_tree, cert_id)
+        )
+
     def result_add(
         self,
         loader: str,
         start_time: datetime,
         end_time: datetime,
         success: bool,
-        in_data: dict[str, str],
-        out_data: dict[str, str],
+        stdin_id: int,
+        stdout: bytes | None,
+        stderr: bytes | None,
     ) -> int:
         assert self.run_id, "run_id is not set"
         self.cur.execute(
@@ -228,21 +346,37 @@ class DBHandler:
                     start_time,
                     end_time,
                     success,
-                    in_data,
-                    out_data
-                ) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                    stdin_id,
+                    stdout,
+                    stderr
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 self.run_id,
                 loader,
                 start_time.timestamp(),
                 end_time.timestamp(),
                 success,
-                json.dumps(in_data),
-                json.dumps(out_data),
+                stdin_id,
+                stdout,
+                stderr,
             ),
         )
         assert self.cur.lastrowid
         return self.cur.lastrowid
+
+    def purge_unrefed_certs(self) -> None:
+        cur = self.cur.execute(
+            """
+            SELECT stdin.id 
+                FROM stdin 
+                LEFT JOIN scan_result
+                ON stdin.id = scan_result.stdin_id
+                WHERE scan_result.stdin_id IS NULL"""
+        )
+
+        for row in cur.fetchall():
+            row_id = row[0]
+            self.cur.execute(f"DELETE FROM stdin WHERE stdin.id = {row_id}")
 
 
 def parse_line(line: str, as_json: bool) -> bytes:
@@ -298,20 +432,28 @@ class Runner(Script):
             help="read from stdin as json",
         )
 
-    def _process_plugin(self, plugin: BasePlugin, cert: bytes) -> dict[str, Any]:
+    def _process_plugin(
+        self,
+        plugin: BasePlugin,
+        cert: bytes,
+        stdin_id: int,
+    ) -> dict[str, Any]:
         self.logger.trace(f"running plugin {plugin}")
 
         # Do not log successfully parsed runs.
-        out = {"start_time": datetime.now(), "plugin": repr(plugin)}
+        out = {
+            "start_time": datetime.now(),
+            "plugin": repr(plugin),
+        }
         res = plugin.run(cert)
         out["end_time"] = datetime.now()
 
         if res != {}:
-            out["in_data"] = {"in": {"stdin": cert.decode()}}
-            out["out_data"] = {"out": res}
+            out["stdin_id"] = stdin_id
+            out["res"] = res
         else:
-            out["in_data"] = {"in": None}
-            out["out_data"] = {"out": None}
+            out["stdin_id"] = None
+            out["res"] = None
 
         return out
 
@@ -320,19 +462,42 @@ class Runner(Script):
             res = future.result()
 
             success = True
-            if res["in_data"]["in"] is not None:
-                self.logger.info(f"{res['plugin']}: {res['out_data']}")
+            if res["stdin_id"] is not None:
+                self.logger.info(f"{res['plugin']}: {res['res']}")
                 success = False
+
+            # We only want failed certs in the database.
+            if success is True:
+                continue
+
+            if (r := res["res"]) is not None:
+                stdout = (
+                    r["stdout"] if "stdout" in r and r["stdout"] is not None else None
+                )
+                stderr = (
+                    r["stderr"] if "stderr" in r and r["stderr"] is not None else None
+                )
+            else:
+                stdout = None
+                stderr = None
 
             self.db.result_add(
                 loader=res["plugin"],
-                in_data=res["in_data"],
-                out_data=res["out_data"],
                 start_time=res["start_time"],
                 end_time=res["end_time"],
                 success=success,
+                stdin_id=res["stdin_id"],
+                stderr=stderr.encode() if isinstance(stderr, str) else stderr,
+                stdout=stdout.encode() if isinstance(stdout, str) else stdout,
             )
+
+        self.db.purge_unrefed_certs()
         self.db.commit()
+
+    def _lint_certs(self) -> None:
+        for id, cert in self.db.get_certs():
+            self.db.asn1_tree_add(id, cert)
+            self.db.zlint_result_add(id, cert)
 
     def main(self, args: Namespace) -> None:
         self.db = DBHandler.connect(args.db)
@@ -343,12 +508,15 @@ class Runner(Script):
             MBED_TLS_Plugin(),
             OpenSSL_Plugin(),
             PythonPlugin(),
-            GoPlugin(["loaders/go/loader"]),
-            GoPlugin(["loaders/go/go1.16.15-loader"]),
-            GoPlugin(["loaders/go/go1.17.13-loader"]),
-            GoPlugin(["loaders/go/go1.18.6-loader"]),
-            GoPlugin(["loaders/go/go1.19.1-loader"]),
+            GoPlugin(["loaders/go/loader"], "1.19.1"),
+            GoPlugin(["loaders/go/go1.16.15-loader"], "1.16.15"),
+            GoPlugin(["loaders/go/go1.17.13-loader"], "1.17.13"),
+            GoPlugin(["loaders/go/go1.18.6-loader"], "1.18.6"),
+            GoPlugin(["loaders/go/go1.19.1-loader"], "1.19.1"),
         ]
+
+        for plugin in plugins:
+            self.db.add_plugin(str(plugin), plugin.description, plugin.version)
 
         self.logger.info(f"loaded plugins: {plugins}")
 
@@ -362,11 +530,18 @@ class Runner(Script):
 
                 cert = parse_line(line, args.json)
 
-                for i, plugin in enumerate(plugins):
-                    if args.indices is not None and i in args.indices:
+                stdin_id = self.db.stdin_add(cert)
+
+                for j, plugin in enumerate(plugins):
+                    if args.indices is not None and j in args.indices:
                         continue
 
-                    fut = executor.submit(self._process_plugin, plugin, cert)
+                    fut = executor.submit(
+                        self._process_plugin,
+                        plugin,
+                        cert,
+                        stdin_id,
+                    )
                     futures.append(fut)
 
                 if len(futures) % 1000 == 0:
@@ -374,7 +549,7 @@ class Runner(Script):
                     futures = []
 
             self._flush_futures(futures)
-            futures = []
+            self._lint_certs()
 
     def entry_point(self, args: Namespace) -> int:
         exit_code = 0

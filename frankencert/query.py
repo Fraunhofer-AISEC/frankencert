@@ -181,7 +181,7 @@ def get_error_class(row: RowType) -> str | None:
         return out
     elif loader == "PythonPlugin":
         out = _classify_python(row).name
-    elif loader == "GNUTLS_Plugin":
+    elif loader.startswith("GNUTLS_Plugin"):
         out = _classify_gnutls(row).name
     elif loader == "MBED_TLS_Plugin":
         out = _classify_mbeldtls(row).name
@@ -253,9 +253,9 @@ class Database:
     def used_loaders(self, index: int) -> pl.DataFrame:
         df = pl.read_database(
             f"""SELECT DISTINCT
-                        loader
-                    FROM scan_result
-                        WHERE scan_result.run == {index};
+                    loader
+                FROM scan_result
+                    WHERE scan_result.run == {index};
                 """,
             self.uri,
             engine="adbc",
@@ -267,8 +267,8 @@ class Database:
         df = pl.read_database(
             f"""SELECT
                     COUNT(*) AS total_testruns
-                    FROM scan_result
-                    WHERE scan_result.run == {index};
+                FROM scan_result
+                        WHERE scan_result.run == {index};
                 """,
             self.uri,
             engine="adbc",
@@ -279,8 +279,8 @@ class Database:
     def run_duration(self, index: int) -> float:
         df = pl.read_database(
             f"""SELECT
-                        end_time - start_time AS run_duration
-                    FROM scan_run where id == {index};
+                    end_time - start_time AS run_duration
+                FROM scan_run where id == {index};
                 """,
             self.uri,
             engine="adbc",
@@ -409,7 +409,6 @@ def cmd_show_errors(args: argparse.Namespace, db: Database) -> None:
 
 def cmd_show_overlap(args: argparse.Namespace, db: Database) -> None:
     df = db.results(args.index)
-
     df = df.with_columns([pl.col("stdin").rank(method="dense").alias("cert_id")])
 
     group = df.groupby("cert_id")
@@ -430,7 +429,7 @@ def cmd_show_overlap(args: argparse.Namespace, db: Database) -> None:
 # certs anschaun, die bei mehr als einem loader gefailed sind und gruppe vergleichen
 
 
-def parse_args() -> (argparse.Namespace, argparse.ArgumentParser):
+def parse_args() -> tuple[argparse.Namespace, argparse.ArgumentParser]:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
