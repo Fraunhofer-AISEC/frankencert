@@ -1,4 +1,5 @@
 import argparse
+import functools
 import json
 from enum import IntEnum, auto, unique
 from functools import cache
@@ -140,6 +141,7 @@ def _classify_gnutls(row: RowType) -> ErrorClass:
 
     return out
 
+
 def _mbedtls_get_error_code(s: str) -> int:
     substr = s.splitlines()[-1]
     substr = substr.rsplit(" ", 2)[-1]
@@ -196,7 +198,7 @@ class Database:
     @cache
     def runs(self) -> pl.DataFrame:
         df = pl.read_database(
-            """SELECT 
+            """SELECT
                     id,
                     command,
                     start_time,
@@ -204,7 +206,6 @@ class Database:
                     end_time - start_time AS duration
                FROM scan_run""",
             self.uri,
-            engine="adbc",
         )
         df = df.with_columns(
             [
@@ -220,27 +221,45 @@ class Database:
     def results(self, index: int) -> pl.DataFrame:
         df = pl.read_database(
             f"""SELECT
-                    id,
+                    scan_result.id,
                     loader,
                     start_time,
                     end_time,
                     end_time - start_time AS duration,
-                    in_data -> "$.in.stdin" AS stdin,
-                    out_data -> "$.out.stderr" AS stderr,
-                    out_data -> "$.out.stdout" AS stdout
+                    stderr as stderr,
+                    stdout as stdout,
+                    stdin.data as stdin,
+                    zlint_result,
+                    asn1_tree
                 FROM scan_result
-                    WHERE scan_result.run == {index}
-                    AND scan_result.success == FALSE;
+                JOIN stdin
+                ON scan_result.stdin_id = stdin.id
+                WHERE scan_result.run = {index}
+                AND scan_result.success = FALSE;
             """,
             self.uri,
-            engine="adbc",
         )
 
         df = df.with_columns(
             [
+                pl.col("stderr").apply(
+                    functools.partial(bytes.decode, errors="replace")
+                ),
+                pl.col("stdout").apply(
+                    functools.partial(bytes.decode, errors="replace")
+                ),
+                pl.col("stdin").apply(
+                    functools.partial(bytes.decode, errors="replace")
+                ),
+                pl.col("zlint_result").apply(json.loads),
+                pl.col("asn1_tree").apply(json.loads),
                 pl.from_epoch(pl.col("end_time")),
                 pl.from_epoch(pl.col("start_time")),
                 (pl.col("duration") / 3600),
+            ]
+        )
+        df = df.with_columns(
+            [
                 (
                     pl.struct(["loader", "stderr", "stdout"]).apply(get_error_class)
                 ).alias("error_class"),
@@ -258,7 +277,6 @@ class Database:
                     WHERE scan_result.run == {index};
                 """,
             self.uri,
-            engine="adbc",
         )
         return df
 
@@ -268,10 +286,9 @@ class Database:
             f"""SELECT
                     COUNT(*) AS total_testruns
                 FROM scan_result
-                        WHERE scan_result.run == {index};
+                    WHERE scan_result.run == {index};
                 """,
             self.uri,
-            engine="adbc",
         )
         return int(df["total_testruns"][0])
 
@@ -283,7 +300,6 @@ class Database:
                 FROM scan_run where id == {index};
                 """,
             self.uri,
-            engine="adbc",
         )
         return float(df["run_duration"][0])
 

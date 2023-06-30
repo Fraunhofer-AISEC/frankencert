@@ -308,7 +308,7 @@ class DBHandler:
 
     def zlint_result_add(self, cert_id: int, cert: bytes) -> None:
         try:
-            zlint_result = json.dumps({"result": zlint(cert), "success": True})
+            zlint_result = json.dumps({"result": json.loads(zlint(cert)), "success": True})
         except subprocess.SubprocessError as e:
             zlint_result = json.dumps({"result": str(e), "success": False})
 
@@ -319,7 +319,7 @@ class DBHandler:
     def asn1_tree_add(self, cert_id: int, cert: bytes) -> None:
         try:
             asn1_tree = json.dumps(
-                {"result": parse_asn1_json(cert.decode()), "success": True}
+                {"result": json.loads(parse_asn1_json(cert.decode())), "success": True}
             )
         except Exception as e:
             asn1_tree = json.dumps({"result": str(e), "success": False})
