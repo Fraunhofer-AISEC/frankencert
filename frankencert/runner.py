@@ -56,7 +56,8 @@ CREATE TABLE stdin (
 
 CREATE TABLE scan_result (
     id INTEGER PRIMARY KEY,
-    run INTEGER NOT NULL REFERENCES scan_run(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    plugin_id INTEGER NOT NULL REFERENCES plugin(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    run_id INTEGER NOT NULL REFERENCES scan_run(id) ON UPDATE CASCADE ON DELETE CASCADE,
     loader TEXT NOT NULL,
     start_time REAL NOT NULL,
     end_time REAL NOT NULL,
@@ -341,7 +342,7 @@ class DBHandler:
         assert self.run_id, "run_id is not set"
         self.cur.execute(
             """INSERT INTO scan_result(
-                    run,
+                    run_id,
                     loader,
                     start_time,
                     end_time,
@@ -508,11 +509,12 @@ class Runner(Script):
             MBED_TLS_Plugin(),
             OpenSSL_Plugin(),
             PythonPlugin(),
-            GoPlugin(["loaders/go/loader"], "1.19.1"),
             GoPlugin(["loaders/go/go1.16.15-loader"], "1.16.15"),
             GoPlugin(["loaders/go/go1.17.13-loader"], "1.17.13"),
             GoPlugin(["loaders/go/go1.18.6-loader"], "1.18.6"),
             GoPlugin(["loaders/go/go1.19.1-loader"], "1.19.1"),
+            GoPlugin(["loaders/go/go1.20.4-loader"], "1.20.4"),
+            GoPlugin(["loaders/go/go1.21rc2-loader"], "1.21rc2"),
         ]
 
         for plugin in plugins:

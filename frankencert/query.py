@@ -13,6 +13,7 @@ class ErrorClass(IntEnum):
     PARSE_ERROR = auto()
     INVALID_VALUE = auto()
     CRYPTO_ERROR = auto()
+    URL_ERROR = auto()
     UNCATEGORIZED = auto()
 
 
@@ -109,8 +110,27 @@ def _classify_go_119(row: RowType) -> ErrorClass:
 
 
 def _classify_go(row: RowType) -> ErrorClass:
-    return _classify_go_119(row)
-
+    if row["stderr"].startswith("x509: cannot parse URI"):
+        return ErrorClass.URL_ERROR
+    elif list_in_string(["invalid", "malformed"], row["stderr"]):
+        return ErrorClass.INVALID_VALUE
+    elif "out of range" in row["stderr"]:
+        return ErrorClass.INVALID_VALUE
+    elif list_in_string(["cannot parse", "failed to parse"], row["stderr"]):
+        return ErrorClass.PARSE_ERROR
+    elif list_in_string(
+        [
+            "elliptic curve",
+            "RSA key",
+            "RSA modulus",
+            "signature algorithm",
+            "curve point",
+        ],
+        row["stderr"],
+    ):
+        return ErrorClass.CRYPTO_ERROR
+    else:
+        return ErrorClass.UNCATEGORIZED
 
 def _classify_python(row: RowType) -> ErrorClass:
     if "InvalidValue" in row["stderr"]:
@@ -226,15 +246,15 @@ class Database:
                     start_time,
                     end_time,
                     end_time - start_time AS duration,
-                    stderr as stderr,
-                    stdout as stdout,
+                    stderr,
+                    stdout,
                     stdin.data as stdin,
                     zlint_result,
                     asn1_tree
                 FROM scan_result
                 JOIN stdin
                 ON scan_result.stdin_id = stdin.id
-                WHERE scan_result.run = {index}
+                WHERE scan_result.run_id = {index}
                 AND scan_result.success = FALSE;
             """,
             self.uri,
@@ -252,7 +272,7 @@ class Database:
                     functools.partial(bytes.decode, errors="replace")
                 ),
                 pl.col("zlint_result").apply(json.loads),
-                pl.col("asn1_tree").apply(json.loads),
+                # pl.col("asn1_tree").apply(json.loads),
                 pl.from_epoch(pl.col("end_time")),
                 pl.from_epoch(pl.col("start_time")),
                 (pl.col("duration") / 3600),
@@ -274,7 +294,7 @@ class Database:
             f"""SELECT DISTINCT
                     loader
                 FROM scan_result
-                    WHERE scan_result.run == {index};
+                    WHERE scan_result.run_id == {index};
                 """,
             self.uri,
         )
@@ -286,7 +306,7 @@ class Database:
             f"""SELECT
                     COUNT(*) AS total_testruns
                 FROM scan_result
-                    WHERE scan_result.run == {index};
+                    WHERE scan_result.run_id == {index};
                 """,
             self.uri,
         )
@@ -342,6 +362,7 @@ def cmd_show_stats(args: argparse.Namespace, db: Database) -> None:
         error_classes_df = df2.groupby("error_class").agg(
             pl.count(),
         )
+        print(error_classes_df)
         d = error_classes_df.to_dict(as_series=False)
         for i, k in enumerate(d["error_class"]):
             v = d["count"][i]
