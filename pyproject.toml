@@ -22,7 +22,7 @@ asn1tools = "^0.166.0"
 connectorx = "0.3.2.alpha.6"
 
 [tool.poetry.group.dev.dependencies]
-black = "^22.6.0"
+black = "^23.9.1"
 mypy = "^1.2"
 pylsp-mypy = "^0.6.2"
 pylsp-rope = "^0.1.8"
